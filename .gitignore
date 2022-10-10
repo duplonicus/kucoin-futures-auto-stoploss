@@ -1,0 +1,4 @@
+__pycache__/
+examples.json
+ws.py
+secret.ini
