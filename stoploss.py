@@ -80,7 +80,7 @@ def add_stops():
                 amount = pos_data[pos]["amount"]
             elif pos_data[pos]["amount"] < 0:
                 amount = pos_data[pos]["amount"] * -1 
-            print(f'Submitting STOP order for {pos} {pos_data[pos]["direction"]} position @ {stop_price}')
+            print(f'Submitting STOP order for {pos} {pos_data[pos]["direction"]} position @ {stop_price}\n')
             # Stop orders
             if pos_data[pos]["direction"] == "long":
                 td_client.create_limit_order(reduceOnly=True, closeOrder=False, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
@@ -89,9 +89,11 @@ def add_stops():
 
 # Cancel stops with no positions
 def check_stops():
+    if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}:
+        return
     for item in stops["items"]:
         if item["symbol"] not in get_symbol_list():
-            # cancel stop order here
+            print(f'Cancelling STOP orders for {item["symbol"]}\n')
             td_client.cancel_all_stop_order(item["symbol"])
 
 def main():
@@ -100,15 +102,17 @@ def main():
         global positions, stops
 
         # Get positions
-        positions = td_client.get_all_position()   
+        positions = td_client.get_all_position()  
+
+        # Get stop and take profit orders
+        stops = td_client.get_open_stop_order()
+
+        # Continue looping if no positions
         if positions == {'code': '200000', 'data': []}:
             print("No active positions... Start a trade!")
             check_stops()
             time.sleep(loop_wait)
-            continue 
-
-        # Get stop and take profit orders
-        stops = td_client.get_open_stop_order()
+            continue         
 
         # Organize data and print to console
         print(f"Positions: {get_symbol_list()}\n\nPositions Data:\n{get_position_data()}\n")
