@@ -1,6 +1,7 @@
 from kucoin_futures.client import TradeData, MarketData
 import time
 import configparser
+import sys
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -40,7 +41,7 @@ def get_position_data():
     for position in positions:
         stop_loss, take_profit = False, False
         stop_price, profit_price = None, None
-        # If direction is 'long', stop is 'down' and vise-versa
+        # If posCost is > 0 the trade direction is long. If direction is 'long', stop is 'down' and vise-versa
         direction = "long" if position["posCost"] > 0 else "short"                
         if direction == "short":            
             for item in stops["items"]:               
@@ -99,32 +100,37 @@ def check_stops():
 def main():
     while True:
 
-        global positions, stops
+        # Try/Except to prevent script from stopping if 'Too Many Requests' response returned
+        try:
+            global positions, stops
 
-        # Get positions
-        positions = td_client.get_all_position()  
+            # Get positions
+            positions = td_client.get_all_position()  
 
-        # Get stop and take profit orders
-        stops = td_client.get_open_stop_order()
+            # Get stop and take profit orders
+            stops = td_client.get_open_stop_order()
 
-        # Continue looping if no positions
-        if positions == {'code': '200000', 'data': []}:
-            print("No active positions... Start a trade!")
+            # Continue looping if no positions
+            if positions == {'code': '200000', 'data': []}:
+                print("No active positions... Start a trade!\r")
+                check_stops()
+                time.sleep(loop_wait)
+                continue
+
+            # Organize data and print to console
+            print(f"Positions: {get_symbol_list()}\n\nPositions Data:\n{get_position_data()}\n")
+
+            # Submit stop orders
+            add_stops()
+
+            # Cancel stop orders if no matching position
             check_stops()
+
+            # Wait for 5 seconds
             time.sleep(loop_wait)
-            continue         
-
-        # Organize data and print to console
-        print(f"Positions: {get_symbol_list()}\n\nPositions Data:\n{get_position_data()}\n")
-
-        # Submit stop orders
-        add_stops()
-
-        # Cancel stop orders if no matching position
-        check_stops()
-
-        # Wait for 5 seconds
-        time.sleep(loop_wait)
+        except Exception as e:
+            print(e)
+            pass
 
 if __name__ == '__main__':
     main()
