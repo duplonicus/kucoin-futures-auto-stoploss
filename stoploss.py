@@ -1,7 +1,6 @@
 from kucoin_futures.client import TradeData, MarketData
 import time
 import configparser
-import sys
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -23,6 +22,7 @@ loop_wait = 5
 # Get positions, stops, and take profits
 positions = td_client.get_all_position()
 stops = td_client.get_open_stop_order()
+print(positions)
 
 # Functions
 # Returns a list of symbols for active trades
@@ -67,14 +67,20 @@ def get_position_data():
 # Returns a value one tick size away from the liquidation price
 def get_new_stop_price(direction, liq_price, tick_size):
     if direction == "long":
-        return liq_price + tick_size
+        return round_to_tick_size(liq_price + tick_size, tick_size)
     elif direction == "short":
-        return liq_price - tick_size
+        return round_to_tick_size(liq_price - tick_size, tick_size)
+
+# Make sure Python doesn't return a super long float for the stop order amount
+def round_to_tick_size(number, tick_size):
+    tick_size = "{:f}".format(tick_size) # Convert to float if tick_size was returned in scientific notation
+    after_decimal = len(str( tick_size).split(".")[1]) # Number of digits after the decimal for tick_size
+    return round(number, after_decimal)
 
 # Submit stop orders if not present
 def add_stops():   
     for pos in pos_data:
-        if pos_data[pos]["stop_loss"] == False:
+        if pos_data[pos]["stop_loss"] is False:
             stop_price = get_new_stop_price(pos_data[pos]["direction"], pos_data[pos]["liq_price"], pos_data[pos]["tick_size"])
             # Make sure amount is a positive number
             if pos_data[pos]["amount"] > 0:
@@ -97,7 +103,7 @@ def check_stops():
             print(f'Cancelling STOP orders for {item["symbol"]}\n')
             td_client.cancel_all_stop_order(item["symbol"])
 
-def main():
+def main():        
     while True:
 
         # Try/Except to prevent script from stopping if 'Too Many Requests' response returned
@@ -112,8 +118,8 @@ def main():
 
             # Continue looping if no positions
             if positions == {'code': '200000', 'data': []}:
-                print("No active positions... Start a trade!\r")
                 check_stops()
+                print("No active positions... Start a trade!\r")                
                 time.sleep(loop_wait)
                 continue
 
@@ -128,6 +134,7 @@ def main():
 
             # Wait for 5 seconds
             time.sleep(loop_wait)
+
         except Exception as e:
             print(e)
             pass
