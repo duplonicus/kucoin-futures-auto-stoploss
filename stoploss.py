@@ -17,7 +17,8 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 
 # Variables
 pos_data = {}
-loop_wait = 5
+loop_wait = 3
+ticks_from_liq = 1 # If 1 tick away from the liquidations price is too aggressive/risky, increase this number
 
 # Get positions, stops, and take profits
 positions = td_client.get_all_position()
@@ -64,17 +65,17 @@ def get_position_data():
         pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":symbol["tickSize"], "amount":amount }
     return pos_data
 
-# Returns a value one tick size away from the liquidation price
+# Returns a number one tick size away from the liquidation price
 def get_new_stop_price(direction, liq_price, tick_size):
     if direction == "long":
-        return round_to_tick_size(liq_price + tick_size, tick_size)
+        return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
     elif direction == "short":
-        return round_to_tick_size(liq_price - tick_size, tick_size)
+        return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
 
 # Make sure Python doesn't return a super long float for the stop order amount
 def round_to_tick_size(number, tick_size):
-    tick_size = "{:f}".format(tick_size) # Convert to float if tick_size was returned in scientific notation
-    after_decimal = len(str( tick_size).split(".")[1]) # Number of digits after the decimal for tick_size
+    tick_size = "{:f}".format(tick_size) # Convert to decimal float if tick_size was returned in scientific notation
+    after_decimal = len(str(tick_size).split(".")[1]) # Number of digits after the decimal for tick_size
     return round(number, after_decimal)
 
 # Submit stop orders if not present
