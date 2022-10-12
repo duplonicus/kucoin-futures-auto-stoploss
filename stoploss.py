@@ -1,6 +1,7 @@
 from kucoin_futures.client import TradeData, MarketData
 import time
 import configparser
+import sys
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -18,23 +19,22 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 # Variables
 pos_data = {}
 loop_wait = 3
-ticks_from_liq = 1 # If 1 tick away from the liquidations price is too aggressive/risky, increase this number
+ticks_from_liq = 2 # Number of ticks away from liquidation price for stop amount
 
 # Get positions, stops, and take profits
 positions = td_client.get_all_position()
 stops = td_client.get_open_stop_order()
-print(positions)
+#print(positions)
+#print(stops)
 
 # Functions
 # Returns a list of symbols for active trades
 def get_symbol_list():
     symbols = []
-    i = 0
-    if positions == {'code': '200000', 'data': []}:
+    if positions == {'code': '200000', 'data': []}: # No positions
         return symbols
-    for position in positions:
-        symbols.append(positions[i]["symbol"])
-        i += 1
+    for count, position in enumerate(positions):
+        symbols.append(positions[count]["symbol"])
     return symbols
 
 # Check if positions have stops and get some data
@@ -65,7 +65,7 @@ def get_position_data():
         pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":symbol["tickSize"], "amount":amount }
     return pos_data
 
-# Returns a number one tick size away from the liquidation price
+# Returns a number one tick_size * ticks_from_liq away from the liquidation price
 def get_new_stop_price(direction, liq_price, tick_size):
     if direction == "long":
         return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
@@ -91,41 +91,62 @@ def add_stops():
             print(f'Submitting STOP order for {pos} {pos_data[pos]["direction"]} position @ {stop_price}\n')
             # Stop orders
             if pos_data[pos]["direction"] == "long":
-                td_client.create_limit_order(reduceOnly=True, closeOrder=False, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+                td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
             elif pos_data[pos]["direction"] == "short":
-                td_client.create_limit_order(reduceOnly=True, closeOrder=False, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+                td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
-# Cancel stops with no positions
-def check_stops():
-    if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}:
+# Cancel stops with no matching positions and redo stops if position/liquidation price changes
+def check_stops():    
+    # Check if no stops and return
+    if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}: # No stops
         return
+    # Cancel stops if no matching position
     for item in stops["items"]:
-        if item["symbol"] not in get_symbol_list():
-            print(f'Cancelling STOP orders for {item["symbol"]}\n')
+        if item["symbol"] not in get_symbol_list():            
+            print(f'No matching position for {item["symbol"]}! Cancelling STOP orders for {item["symbol"]}\n')
             td_client.cancel_all_stop_order(item["symbol"])
+            continue
+        # Redo stops if position changes thus chaning the liquidation price
+        for pos in pos_data.items(): # Each item is a tuple: ('symbol', {direction:, liq_price:, ...})
+            new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
+            if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
+                print(f'Liquidation price changed for {item["symbol"]}! Resubmitting stop order...\n')
+                td_client.cancel_all_stop_order(item["symbol"])
+                add_stops()
+                continue
+            # Redo stops if stop size doesn't match position size            
+            if pos[1]["amount"] > 0:
+                size = pos[1]["amount"] 
+            elif pos[1]["amount"] < 0:
+                size = pos[1]["amount"] * -1
+            if item["symbol"] == pos[0] and item["size"] != size:
+                print(f'Position size changed for {item["symbol"]}! Resubmitting stop order...\n')
+                td_client.cancel_all_stop_order(item["symbol"])
+                add_stops()
 
 def main():        
     while True:
 
-        # Try/Except to prevent script from stopping if 'Too Many Requests' response returned
+        # Try/Except to prevent script from stopping if 'Too Many Requests' response returned from Kucoin
         try:
             global positions, stops
 
-            # Get positions
+            # Get positions, stops, and take profits
             positions = td_client.get_all_position()  
-
-            # Get stop and take profit orders
             stops = td_client.get_open_stop_order()
 
             # Continue looping if no positions
             if positions == {'code': '200000', 'data': []}:
                 check_stops()
-                print("No active positions... Start a trade!\r")                
+                print(f"No active positions... Start a trade!", end="\r")
+                sys.stdout.flush()                
                 time.sleep(loop_wait)
                 continue
 
             # Organize data and print to console
-            print(f"Positions: {get_symbol_list()}\n\nPositions Data:\n{get_position_data()}\n")
+            #print(f"Positions: {get_symbol_list()}\n\nPositions Data:\n{get_position_data()}\n") 
+            get_symbol_list()
+            get_position_data()           
 
             # Submit stop orders
             add_stops()
@@ -133,7 +154,9 @@ def main():
             # Cancel stop orders if no matching position
             check_stops()
 
-            # Wait for 5 seconds
+            print("Running...", end="\r")
+
+            # Wait for loop_wait seconds
             time.sleep(loop_wait)
 
         except Exception as e:
