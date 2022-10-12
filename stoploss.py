@@ -89,7 +89,7 @@ def add_stops():
                 amount = pos_data[pos]["amount"]
             elif pos_data[pos]["amount"] < 0:
                 amount = pos_data[pos]["amount"] * -1 
-            print(f'Submitting STOP order for {pos} {pos_data[pos]["direction"]} position @ {stop_price}\n')
+            print(f'> Submitting STOP order for {pos} {pos_data[pos]["direction"]} position @ {stop_price}')
             # Stop orders
             if pos_data[pos]["direction"] == "long":
                 td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
@@ -104,13 +104,13 @@ def check_stops():
     # Cancel stops if no matching position
     for item in stops["items"]:
         if item["symbol"] not in get_symbol_list():            
-            print(f'No position for {item["symbol"]}! Cancelling STOP orders...\n')
+            print(f'> No position for {item["symbol"]}! Cancelling STOP orders...')
             td_client.cancel_all_stop_order(item["symbol"])
         # Redo stops if liquidation price changes
         for pos in pos_data.items(): # Each item is a tuple: ('symbol', {direction:, liq_price:, ...})
             new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
             if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
-                print(f'Liquidation price changed for {item["symbol"]}! Resubmitting stop order...\n')
+                print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop order...')
                 td_client.cancel_all_stop_order(item["symbol"])
                 add_stops()
             # Redo stops if stop size doesn't match position size
@@ -119,7 +119,7 @@ def check_stops():
             elif pos[1]["amount"] < 0:
                 amount = pos[1]["amount"] * -1
             if item["symbol"] == pos[0] and item["size"] != amount:
-                print(f'Position size changed for {item["symbol"]}! Resubmitting stop order...\n')
+                print(f'> Position size changed for {item["symbol"]}! Resubmitting stop order...')
                 td_client.cancel_all_stop_order(item["symbol"])
                 add_stops()
 
