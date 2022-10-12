@@ -118,7 +118,7 @@ def check_stops():
                 print(f'> Position size changed for {item["symbol"]}! Resubmitting stop order...')
                 td_client.cancel_all_stop_order(item["symbol"])
                 add_stops()
-            # Redo stops if stop liquidation price doesn't match position liquidation price. Don't compare to take profit price
+            # Redo stops if stop price doesn't match position liquidation price. Don't compare to take profit price
             if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
                 if item["stop"] == "down" and pos[1]["direction"] == "long": # Take profit of long
                     continue
