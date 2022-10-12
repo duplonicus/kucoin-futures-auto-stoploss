@@ -4,7 +4,7 @@ import configparser
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
-config.read("secret.ini")
+config.read("C:/Users/dup/dev/repos/kucoin stop loss helper/secret.ini")
 
 # Connection info
 api_key = config['api']['key']
@@ -25,7 +25,7 @@ ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price
 positions = td_client.get_all_position()
 stops = td_client.get_open_stop_order()
 #print(positions)
-#print(stops)
+print(stops)
 
 # Functions
 # Returns a list of symbols for active trades
@@ -110,9 +110,12 @@ def check_stops():
         for pos in pos_data.items(): # Each item is a tuple: ('symbol', {direction:, liq_price:, ...})
             new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
             if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
-                print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop order...')
-                td_client.cancel_all_stop_order(item["symbol"])
-                add_stops()
+                if item["stop"] == "down" and pos[1]["direction"] == "long":
+                    continue
+                elif item["stop"] == "down" and pos[1]["direction"] == "long":
+                    print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop order...')
+                    td_client.cancel_all_stop_order(item["symbol"])
+                    add_stops()
             # Redo stops if stop size doesn't match position size
             if pos[1]["amount"] > 0:
                 amount = pos[1]["amount"] 
