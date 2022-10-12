@@ -1,7 +1,6 @@
 from kucoin_futures.client import TradeData, MarketData
 import time
 import configparser
-import sys
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -17,9 +16,10 @@ td_client = TradeData(key=api_key, secret=api_secret, passphrase=api_passphrase,
 md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
 # Variables
+symbols = []
 pos_data = {}
 loop_wait = 3
-ticks_from_liq = 2 # Number of ticks away from liquidation price for stop amount
+ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price
 
 # Get positions, stops, and take profits
 positions = td_client.get_all_position()
@@ -30,6 +30,7 @@ stops = td_client.get_open_stop_order()
 # Functions
 # Returns a list of symbols for active trades
 def get_symbol_list():
+    global symbols
     symbols = []
     if positions == {'code': '200000', 'data': []}: # No positions
         return symbols
@@ -65,14 +66,14 @@ def get_position_data():
         pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":symbol["tickSize"], "amount":amount }
     return pos_data
 
-# Returns a number one tick_size * ticks_from_liq away from the liquidation price
+# Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price
 def get_new_stop_price(direction, liq_price, tick_size):
     if direction == "long":
         return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
     elif direction == "short":
         return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
 
-# Make sure Python doesn't return a super long float for the stop order amount
+# Make sure Python doesn't return a super long float for the stop order price
 def round_to_tick_size(number, tick_size):
     tick_size = "{:f}".format(tick_size) # Convert to decimal float if tick_size was returned in scientific notation
     after_decimal = len(str(tick_size).split(".")[1]) # Number of digits after the decimal for tick_size
@@ -95,7 +96,7 @@ def add_stops():
             elif pos_data[pos]["direction"] == "short":
                 td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
-# Cancel stops with no matching positions and redo stops if position/liquidation price changes
+# Cancel stops with no matching positions and redo stops if position size or liquidation price changes
 def check_stops():    
     # Check if no stops and return
     if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}: # No stops
@@ -103,23 +104,21 @@ def check_stops():
     # Cancel stops if no matching position
     for item in stops["items"]:
         if item["symbol"] not in get_symbol_list():            
-            print(f'No matching position for {item["symbol"]}! Cancelling STOP orders for {item["symbol"]}\n')
+            print(f'No position for {item["symbol"]}! Cancelling STOP orders...\n')
             td_client.cancel_all_stop_order(item["symbol"])
-            continue
-        # Redo stops if position changes thus chaning the liquidation price
+        # Redo stops if liquidation price changes
         for pos in pos_data.items(): # Each item is a tuple: ('symbol', {direction:, liq_price:, ...})
             new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
             if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
                 print(f'Liquidation price changed for {item["symbol"]}! Resubmitting stop order...\n')
                 td_client.cancel_all_stop_order(item["symbol"])
                 add_stops()
-                continue
-            # Redo stops if stop size doesn't match position size            
+            # Redo stops if stop size doesn't match position size
             if pos[1]["amount"] > 0:
-                size = pos[1]["amount"] 
+                amount = pos[1]["amount"] 
             elif pos[1]["amount"] < 0:
-                size = pos[1]["amount"] * -1
-            if item["symbol"] == pos[0] and item["size"] != size:
+                amount = pos[1]["amount"] * -1
+            if item["symbol"] == pos[0] and item["size"] != amount:
                 print(f'Position size changed for {item["symbol"]}! Resubmitting stop order...\n')
                 td_client.cancel_all_stop_order(item["symbol"])
                 add_stops()
@@ -132,21 +131,19 @@ def main():
             global positions, stops
 
             # Get positions, stops, and take profits
-            positions = td_client.get_all_position()  
+            positions = td_client.get_all_position()
             stops = td_client.get_open_stop_order()
 
             # Continue looping if no positions
             if positions == {'code': '200000', 'data': []}:
                 check_stops()
-                print(f"No active positions... Start a trade!", end="\r")
-                sys.stdout.flush()                
+                print(f"> No active positions... Start a trade!", end="\r")             
                 time.sleep(loop_wait)
                 continue
 
-            # Organize data and print to console
-            #print(f"Positions: {get_symbol_list()}\n\nPositions Data:\n{get_position_data()}\n") 
+            # Get positions symbol list and data
             get_symbol_list()
-            get_position_data()           
+            get_position_data()  
 
             # Submit stop orders
             add_stops()
@@ -154,7 +151,7 @@ def main():
             # Cancel stop orders if no matching position
             check_stops()
 
-            print("Running...", end="\r")
+            print(f"> Active positions: {symbols}", end="\r")
 
             # Wait for loop_wait seconds
             time.sleep(loop_wait)
