@@ -31,7 +31,6 @@ stops = td_client.get_open_stop_order()
 # Returns a list of symbols for active trades
 def get_symbol_list():
     global symbols
-    symbols = []
     if positions == {'code': '200000', 'data': []}: # No positions
         return symbols
     for count, position in enumerate(positions):
@@ -103,17 +102,18 @@ def check_stops():
         return
     # Cancel stops if no matching position
     for item in stops["items"]:
-        if item["symbol"] not in get_symbol_list():            
+        if item["symbol"] not in symbols:            
             print(f'> No position for {item["symbol"]}! Cancelling STOP orders...')
             td_client.cancel_all_stop_order(item["symbol"])
         # Redo stops if position amount changes
         for pos in pos_data.items(): # Each item is a tuple: ('symbol', {direction:, liq_price:, ...})
             new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
-            # Check if position amount doesn't match stop amount
+            # Kucoin return a positive number for item["size"], make sure our is too
             if pos[1]["amount"] > 0:
                 amount = pos[1]["amount"] 
             elif pos[1]["amount"] < 0:
                 amount = pos[1]["amount"] * -1
+            # Check if position amount doesn't match stop amount
             if item["symbol"] == pos[0] and item["size"] != amount:
                 print(f'> Position size changed for {item["symbol"]}! Resubmitting stop order...')
                 td_client.cancel_all_stop_order(item["symbol"])
@@ -124,7 +124,7 @@ def check_stops():
                     continue
                 elif item["stop"] == "up" and pos[1]["direction"] == "short": # Take profit of short
                     continue
-                elif item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short":
+                elif item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short": # The stops you are looking for
                     print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop order...')
                     td_client.cancel_all_stop_order(item["symbol"])
                     add_stops()
@@ -139,6 +139,7 @@ def main():
             # Get positions, stops, and take profits
             positions = td_client.get_all_position()
             stops = td_client.get_open_stop_order()
+            get_symbol_list()
 
             # Continue looping if no positions
             if positions == {'code': '200000', 'data': []}:
@@ -148,7 +149,7 @@ def main():
                 continue
 
             # Get positions symbol list and data
-            get_symbol_list()
+            
             get_position_data()  
 
             # Submit stop orders
