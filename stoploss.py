@@ -106,11 +106,10 @@ def check_stops():
         if item["symbol"] not in get_symbol_list():            
             print(f'> No position for {item["symbol"]}! Cancelling STOP orders...')
             td_client.cancel_all_stop_order(item["symbol"])
-        # Redo stops if liquidation price changes
+        # Redo stops if position amount changes
         for pos in pos_data.items(): # Each item is a tuple: ('symbol', {direction:, liq_price:, ...})
             new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
-            
-            # Redo stops if stop size doesn't match position size
+            # Check if position amount doesn't match stop amount
             if pos[1]["amount"] > 0:
                 amount = pos[1]["amount"] 
             elif pos[1]["amount"] < 0:
@@ -119,10 +118,11 @@ def check_stops():
                 print(f'> Position size changed for {item["symbol"]}! Resubmitting stop order...')
                 td_client.cancel_all_stop_order(item["symbol"])
                 add_stops()
+            # Redo stops if stop liquidation price doesn't match position liquidation price. Don't compare to take profit price
             if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
-                if item["stop"] == "down" and pos[1]["direction"] == "long": # Make sure not to compare to take profit price
+                if item["stop"] == "down" and pos[1]["direction"] == "long": # Take profit of long
                     continue
-                if item["stop"] == "up" and pos[1]["direction"] == "short":
+                elif item["stop"] == "up" and pos[1]["direction"] == "short": # Take profit of short
                     continue
                 elif item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short":
                     print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop order...')
