@@ -4,7 +4,7 @@ import configparser
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
-config.read("C:/Users/dup/dev/repos/kucoin stop loss helper/secret.ini")
+config.read("secret.ini")
 
 # Connection info
 api_key = config['api']['key']
@@ -25,7 +25,7 @@ ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price
 positions = td_client.get_all_position()
 stops = td_client.get_open_stop_order()
 #print(positions)
-print(stops)
+#print(stops)
 
 # Functions
 # Returns a list of symbols for active trades
@@ -89,7 +89,7 @@ def add_stops():
                 amount = pos_data[pos]["amount"]
             elif pos_data[pos]["amount"] < 0:
                 amount = pos_data[pos]["amount"] * -1 
-            print(f'> Submitting STOP order for {pos} {pos_data[pos]["direction"]} position @ {stop_price}')
+            print(f'> Submitting STOP order for {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"]} @ {stop_price}')
             # Stop orders
             if pos_data[pos]["direction"] == "long":
                 td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
@@ -109,13 +109,7 @@ def check_stops():
         # Redo stops if liquidation price changes
         for pos in pos_data.items(): # Each item is a tuple: ('symbol', {direction:, liq_price:, ...})
             new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
-            if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
-                if item["stop"] == "down" and pos[1]["direction"] == "long":
-                    continue
-                elif item["stop"] == "down" and pos[1]["direction"] == "long":
-                    print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop order...')
-                    td_client.cancel_all_stop_order(item["symbol"])
-                    add_stops()
+            
             # Redo stops if stop size doesn't match position size
             if pos[1]["amount"] > 0:
                 amount = pos[1]["amount"] 
@@ -125,6 +119,15 @@ def check_stops():
                 print(f'> Position size changed for {item["symbol"]}! Resubmitting stop order...')
                 td_client.cancel_all_stop_order(item["symbol"])
                 add_stops()
+            if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
+                if item["stop"] == "down" and pos[1]["direction"] == "long": # Make sure not to compare to take profit price
+                    continue
+                if item["stop"] == "up" and pos[1]["direction"] == "short":
+                    continue
+                elif item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short":
+                    print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop order...')
+                    td_client.cancel_all_stop_order(item["symbol"])
+                    add_stops()
 
 def main():        
     while True:
