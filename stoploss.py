@@ -1,6 +1,7 @@
 from kucoin_futures.client import TradeData, MarketData
 import time
 import configparser
+from surreal_db import *
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -22,22 +23,25 @@ symbols = []
 pos_data = {}
 loop_wait = 3
 ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
+take_profit = False # Set to True to enable take profit orders at the below profit target percentage
+profit_target_prcnt = 0.5 # 50% profit on initial margin
+database = False # Set to True after installing SurrealDB: https://surrealdb.com/
 
 # Functions
-# Returns a dictionary containing Kucoin response
 def get_positions():
+    """ Returns a dictionary of active futures positions """
     global positions
     positions = td_client.get_all_position()
     return positions
 
-# Returns a dictionary containing Kucoin response
 def get_stops():
+    """ Returns a dictionary of current stop orders """
     global stops
     stops = td_client.get_open_stop_order()
     return stops
 
-# Returns a list of symbols for active trades
-def get_symbol_list():    
+def get_symbol_list(): 
+    """ Returns a list of symbols for active trades """   
     global symbols
     symbols = []
     if positions == {'code': '200000', 'data': []}: # No positions
@@ -46,8 +50,8 @@ def get_symbol_list():
         symbols.append(positions[count]["symbol"])
     return symbols
 
-# Check if positions have stops and get some data
 def get_position_data():
+    """ Check if positions have stops and return organized data in pos_data dict """
     for position in positions:
         stop_loss, take_profit = False, False
         stop_price, profit_price = None, None
@@ -69,26 +73,28 @@ def get_position_data():
                 if item["symbol"] == position["symbol"] and item["stop"] == "up":
                     take_profit = True
                     profit_price = item["stopPrice"]
-        amount = position["currentQty"]
+        # TODO: Save on API requests by storing symbol contract details data in a DB
         symbol = md_client.get_contract_detail(position["symbol"])
-        pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":symbol["tickSize"], "amount":amount }
+        if database:  
+            event_loop.run_until_complete(create_all("symbol", symbol))     
+        pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":symbol["tickSize"], "amount":position["currentQty"], "mark_price":position["markPrice"] }
     return pos_data
 
-# Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price
 def get_new_stop_price(direction, liq_price, tick_size):
+    """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price """
     if direction == "long":
         return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
     elif direction == "short":
         return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
 
-# Make sure Python doesn't return a super long float for the stop order price
 def round_to_tick_size(number, tick_size):
+    """ Make sure Python doesn't return a super long float for the stop order price """
     tick_size = "{:f}".format(tick_size) # Convert to decimal float if tick_size was returned in scientific notation
     after_decimal = len(str(tick_size).split(".")[1]) # Number of digits after the decimal for tick_size
     return round(number, after_decimal)
 
-# Submit stop orders if not present
 def add_stops():
+    """ Submit stop orders if not present """
     for pos in pos_data:
         if pos_data[pos]["stop_loss"] is False:
             stop_price = get_new_stop_price(pos_data[pos]["direction"], pos_data[pos]["liq_price"], pos_data[pos]["tick_size"])
@@ -104,26 +110,34 @@ def add_stops():
             elif pos_data[pos]["direction"] == "short":
                 td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
-# Submit take-profit orders if not present and take_profit is True
-# WIP ########
-def add_take_profit():
-    for pos in pos_data:
-        if pos_data[pos]["stop_loss"] is False:
-            stop_price = get_new_stop_price(pos_data[pos]["direction"], pos_data[pos]["liq_price"], pos_data[pos]["tick_size"])
-            # Make sure amount is a positive number as required by Kucoin
-            if pos_data[pos]["amount"] > 0:
-                amount = pos_data[pos]["amount"]
-            elif pos_data[pos]["amount"] < 0:
-                amount = pos_data[pos]["amount"] * -1
-            print(f'> Submitting STOP order for {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')
-            # Stop orders
-            if pos_data[pos]["direction"] == "long":
-                td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
-            elif pos_data[pos]["direction"] == "short":
-                td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+# WIP 
+def get_new_profit_price(direction, entry_price, leverage, profit_target, tick_size):
+    """ Returns a new take profit price """
+    profit_price = entry_price * (1 + profit_target)
+    return round_to_tick_size(profit_price, tick_size)
 
-# Cancel stops with no matching positions and redo stops if position size or liquidation price changes
-def check_stops():    
+# WIP 
+def add_take_profits():
+    """ Submit take-profit orders if not present and take_profit is True """
+    if take_profit is True:
+        for pos in pos_data:
+            if pos_data[pos]["take_profit"] is False:
+                profit_price = get_new_stop_price(pos_data[pos]["direction"], pos_data[pos]["liq_price"], pos_data[pos]["tick_size"])
+                # Make sure amount is a positive number as required by Kucoin
+                if pos_data[pos]["amount"] > 0:
+                    amount = pos_data[pos]["amount"]
+                elif pos_data[pos]["amount"] < 0:
+                    amount = pos_data[pos]["amount"] * -1
+                print(f'> Submitting STOP order for {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')
+                # Stop orders
+                if pos_data[pos]["direction"] == "long":
+                    td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
+                elif pos_data[pos]["direction"] == "short":
+                    td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+
+def check_stops():
+    """ Cancel stops with no matching positions and redo stops if position size or liquidation price changes """
+
     # Check if no stops and return
     if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}: # No stops
         return
@@ -163,20 +177,18 @@ def check_stops():
                     add_stops()
 
 # Debugging
-print(f"Positions: -------\\\n{positions}")
+""" print(f"Positions: -------\\\n{positions}")
 print(f"Stops: -------\\\n{stops}")
 print(f"Symbols: -------\\\n{get_symbol_list()}")
-print(f"Pos Data: -------\\\n{get_position_data()}")
+print(f"Pos Data: -------\\\n{get_position_data()}") """
 
-def main():        
+def main(): 
+    """ Happy Trading :) """
     while True:
-
         # Try/Except to prevent script from stopping if 'Too Many Requests' response returned from Kucoin
         try:
-            # Get positions, stops, and take profits (also stops)
             get_positions()            
             get_stops()
-            # Get symbol list from positions
             get_symbol_list()
 
             # Continue looping if no positions
@@ -186,20 +198,13 @@ def main():
                 print(f"> No active positions... Start a trade!", end="\r")             
                 time.sleep(loop_wait)
                 continue
-
-            # Get positions symbol list and data
             
             get_position_data()  
-
-            # Submit stop orders
             add_stops()
-
-            # Cancel stop orders if no matching position
             check_stops()
 
             print(f"> Active positions: {symbols}", end="\r")
 
-            # Wait for loop_wait seconds
             time.sleep(loop_wait)
 
         except Exception as e:
