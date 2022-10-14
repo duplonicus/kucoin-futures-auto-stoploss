@@ -3,5 +3,4 @@ examples.json
 ws.py
 secret.ini
 test.py
-.vscode/launch.json
 .vscode/
