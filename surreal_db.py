@@ -13,7 +13,7 @@ client = HTTPClient(
 event_loop = asyncio.get_event_loop()
 
 async def create_all(table, data):
-    """Use the client to create example data in a table."""
+    """Create a table and add data."""
     response = await client.create_all(table, data)
     print(response)
 
@@ -43,7 +43,7 @@ async def replace_one(table, custom_id, new_data):
 async def upsert_one(table, custom_id, partial_new_data):
     """Patch a record with a specified id."""
     response = await client.upsert_one(table, custom_id, partial_new_data)
-    print(response)
+    #print(response)
 
 async def delete_all(table):
     """Delete all records in a table."""
@@ -55,8 +55,8 @@ async def delete_one(table, custom_id):
 
 async def my_query(query):
     """Execute a custom query."""
-    data = await client.execute(query)
-    print(data)
+    response = await client.execute(query)
+    print(response)
 
 if __name__ == "__main__":
-    event_loop.run_until_complete(select_all("test"))
+    event_loop.run_until_complete(select_all("symbol"))
