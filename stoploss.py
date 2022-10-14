@@ -22,10 +22,12 @@ stops = td_client.get_open_stop_order()
 symbols = []
 pos_data = {}
 loop_wait = 3
+tick_size = None
+symbol = None
 ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
 take_profit = False # Set to True to enable take profit orders at the below profit target percentage
 profit_target_prcnt = 0.5 # 50% profit on initial margin
-database = False # Set to True after installing SurrealDB: https://surrealdb.com/
+database = True # Set to True after installing SurrealDB: https://surrealdb.com/
 
 # Functions
 def get_positions():
@@ -52,6 +54,7 @@ def get_symbol_list():
 
 def get_position_data():
     """ Check if positions have stops and return organized data in pos_data dict """
+    global tick_size, symbol
     for position in positions:
         stop_loss, take_profit = False, False
         stop_price, profit_price = None, None
@@ -73,10 +76,15 @@ def get_position_data():
                 if item["symbol"] == position["symbol"] and item["stop"] == "up":
                     take_profit = True
                     profit_price = item["stopPrice"]
-        # TODO: Save on API requests by storing symbol contract details data in a DB
-        symbol = md_client.get_contract_detail(position["symbol"])
-        if database:  
-            event_loop.run_until_complete(create_all("symbol", symbol))     
+        # TODO: Save on API requests by storing symbol contract details data in a DB. Edit: DB not required, tick_size can be global and retrieved if None
+        if tick_size is None: # this should only run before looping            
+            symbol = md_client.get_contract_detail(position["symbol"])            
+            tick_size = symbol["tickSize"]
+            if database:
+                try:
+                    event_loop.run_until_complete(create_with_id("symbol", symbol["baseCurrency"], symbol)) 
+                except Exception as e:
+                    pass    
         pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":symbol["tickSize"], "amount":position["currentQty"], "mark_price":position["markPrice"] }
     return pos_data
 
