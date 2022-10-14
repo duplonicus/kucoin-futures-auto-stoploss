@@ -21,8 +21,9 @@ positions = td_client.get_all_position()
 stops = td_client.get_open_stop_order()
 symbols = []
 pos_data = {}
-loop_wait = 3
-symbols = {}
+symbols_dict = {}
+
+loop_wait = 3 # How many seconds between each loop
 ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
 take_profit = True # Set to True to enable take profit orders at the below profit target percentage
 profit_target_pcnt = 0.9 # % as float of profit on initial margin
@@ -59,7 +60,7 @@ def get_position_data() -> dict:
         time.sleep(loop_wait)
         return
 
-    global tick_size, symbol_data
+    global pos_data, symbols_dict
     for position in positions:
         stop_loss, take_profit = False, False
         stop_price, profit_price = None, None
@@ -83,13 +84,10 @@ def get_position_data() -> dict:
                     take_profit = True
                     profit_price = item["stopPrice"]
         # Get and store symbol contract details
-        if position["symbol"] not in symbols:         
-            symbol_data = md_client.get_contract_detail(position["symbol"])
-        else:
-            symbol_data = symbols[position["symbol"]]
+        symbol_data = md_client.get_contract_detail(position["symbol"]) if position["symbol"] not in symbols_dict else symbols_dict[position["symbol"]]
         # There was a bug in the way tick_sizes was working before. Now we keep track of all symbol_data in a dictionary
-        symbols[position["symbol"]] = symbol_data
-        tick_size = symbols[position["symbol"]]["tickSize"]
+        symbols_dict[position["symbol"]] = symbol_data
+        tick_size = symbols_dict[position["symbol"]]["tickSize"]
         if database: # This isn't used for anything yet but we will start collecting data
             try:
                 # Add or update symbol data to symbol table in DB
@@ -216,10 +214,11 @@ def main():
             get_positions()            
             get_stops()
             get_symbol_list()
+            get_position_data()
+
             # Run check stops in case a position just closed
             check_stops()
-            # Organize data
-            get_position_data()
+            
             # Make changes to stop orders if required
             add_stops()
             add_take_profits()
