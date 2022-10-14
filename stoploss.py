@@ -21,7 +21,7 @@ loop_wait = 3 # How many seconds between each loop
 ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
 take_profit = True # Set to True to enable take profit orders at the below profit target percentage
 profit_target_pcnt = 0.9 # % as float of profit on initial margin
-database = True # Set to True after installing SurrealDB: https://surrealdb.com/
+database = False # Set to True after installing SurrealDB: https://surrealdb.com/
 
 # Variables
 positions = td_client.get_all_position()
