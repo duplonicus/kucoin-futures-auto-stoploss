@@ -43,10 +43,7 @@ def init_surreal() -> None:
             return
         else:
             for count, dict in enumerate(table):
-                # print(list(dict.keys())[0]) # This works
-                #print(next(iter(dict))) # This works
                 symbols_dict.update(dict)
-
         initialized = True
         return
 
@@ -236,26 +233,26 @@ def main():
     """ Happy Trading :) """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
-        """ try: """
-        if not initialized:
-            init_surreal()
-        get_positions()            
-        get_stops()
-        get_symbol_list()
-        get_position_data()            
-        add_stops()
-        add_take_profits()
-        check_stops()           
+        try:
+            if not initialized:
+                init_surreal()
+            get_positions()            
+            get_stops()
+            get_symbol_list()
+            get_position_data()            
+            add_stops()
+            add_take_profits()
+            check_stops()           
 
-        # Display active positions
-        if positions:
-            print(f"> Active positions: {symbols}", end="\r")
+            # Display active positions
+            if positions:
+                print(f"> Active positions: {symbols}", end="\r")
 
-        time.sleep(loop_wait)
+            time.sleep(loop_wait)
 
-        """ except Exception as e:
+        except Exception as e:
             print(e)
-            pass """
+            pass
 
 if __name__ == '__main__':
     main()
