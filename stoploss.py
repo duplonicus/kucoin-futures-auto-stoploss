@@ -56,8 +56,9 @@ def get_positions() -> dict:
     positions = td_client.get_all_position()
     if positions != {'code': '200000', 'data': []}:
         return positions
-    elif positions != {'code': '200000', 'data': []}:
-        return False
+    elif positions == {'code': '200000', 'data': []}:
+        positions = False
+        return
 
 def get_stops() -> dict:
     """ Returns a dictionary of active stop orders. """
@@ -69,7 +70,7 @@ def get_symbol_list() -> list:
     """ Returns a list of symbols from positions. """   
     global symbols
     symbols = []
-    if not positions:
+    if positions is False:
         return symbols
     for count, position in enumerate(positions):
         symbols.append(positions[count]["symbol"])
