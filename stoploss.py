@@ -16,48 +16,70 @@ api_passphrase = config['api']['passphrase']
 td_client = TradeData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
-# Variables
-positions = td_client.get_all_position()
-stops = td_client.get_open_stop_order()
-symbols = []
-pos_data = {}
-symbols_dict = {}
-
+# Options
 loop_wait = 3 # How many seconds between each loop
 ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
 take_profit = True # Set to True to enable take profit orders at the below profit target percentage
 profit_target_pcnt = 0.9 # % as float of profit on initial margin
 database = True # Set to True after installing SurrealDB: https://surrealdb.com/
 
+# Variables
+positions = td_client.get_all_position()
+stops = td_client.get_open_stop_order()
+symbols = []
+pos_data = {}
+symbols_dict = {}
+initialized = False
+
 # Functions
+def init_surreal() -> None:
+    """ For real? """     
+    global symbols_dict, initialized
+    if database:
+        print("Retreiving data from symbol table...")
+        table = event_loop.run_until_complete(select_all("symbol"))
+        if table == []: # If empty or doesn't exist
+            initialized = True
+            return
+        else:
+            for count, dict in enumerate(table):
+                # print(list(dict.keys())[0]) # This works
+                #print(next(iter(dict))) # This works
+                symbols_dict.update(dict)
+
+        initialized = True
+        return
+
 def get_positions() -> dict:
     """ Returns a dictionary of active futures positions. """
     global positions
     positions = td_client.get_all_position()
-    return positions
+    if positions != {'code': '200000', 'data': []}:
+        return positions
+    elif positions != {'code': '200000', 'data': []}:
+        return False
 
 def get_stops() -> dict:
-    """ Returns a dictionary of current stop orders. """
+    """ Returns a dictionary of active stop orders. """
     global stops
     stops = td_client.get_open_stop_order()
     return stops
 
 def get_symbol_list() -> list: 
-    """ Returns a list of symbols for active trades. """   
+    """ Returns a list of symbols from positions. """   
     global symbols
     symbols = []
-    if positions == {'code': '200000', 'data': []}: # No positions
+    if not positions:
         return symbols
     for count, position in enumerate(positions):
         symbols.append(positions[count]["symbol"])
     return symbols
 
 def get_position_data() -> dict:
-    """ Checks if positions have stops and return organized data in pos_data dict. """
+    """ Checks if positions have stops and returns organized data in pos_data dict. """
 
-    if positions == {'code': '200000', 'data': []}:
+    if not positions:
         print(f"> No active positions... Start a trade!", end="\r")             
-        time.sleep(loop_wait)
         return
 
     global pos_data, symbols_dict
@@ -84,35 +106,39 @@ def get_position_data() -> dict:
                     take_profit = True
                     profit_price = item["stopPrice"]
         # Get and store symbol contract details
-        symbol_data = md_client.get_contract_detail(position["symbol"]) if position["symbol"] not in symbols_dict else symbols_dict[position["symbol"]]
-        # There was a bug in the way tick_sizes was working before. Now we keep track of all symbol_data in a dictionary
-        symbols_dict[position["symbol"]] = symbol_data
-        tick_size = symbols_dict[position["symbol"]]["tickSize"]
-        if database: # This isn't used for anything yet but we will start collecting data
-            try:
-                # Add or update symbol data to symbol table in DB
-                event_loop.run_until_complete(upsert_one("symbol", position["symbol"], symbol_data))
-            except Exception as e:
-                print(e)
+        if position["symbol"] not in symbols_dict:
+            symbol_data = md_client.get_contract_detail(position["symbol"])
+            tick_size = symbol_data["tickSize"]
+            symbols_dict[position["symbol"]] = symbol_data
+            if database:
+                try:
+                    # Add or update symbol data to symbol table in DB
+                    event_loop.run_until_complete(upsert_one("symbol", position["symbol"], {position["symbol"]:symbol_data}))
+                except Exception as e:
+                    print(e)
+        else:
+            symbol_data = symbols_dict[position["symbol"]]
+            tick_size = float(symbol_data["tickSize"])
+            
         initial_leverage = round(position['realLeverage'] * (1 + position['unrealisedRoePcnt'])) # This is confusing but as close as I can get. Not sure if we can get this or why not.
         # Build pos_data dictionary to make working with the data easier
-        pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":symbol_data["tickSize"], "amount":position["currentQty"], "mark_price":position["markPrice"], "initial_leverage":initial_leverage }
+        pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":tick_size, "amount":position["currentQty"], "mark_price":position["markPrice"], "initial_leverage":initial_leverage }
     return pos_data
 
-def get_new_stop_price(direction: str, liq_price: float, tick_size: float):
+def round_to_tick_size(number, tick_size: float) -> float:
+    """ Makes sure Python doesn't return a super long float for the stop order price. """
+    tick_size = "{:f}".format(tick_size) # Convert to decimal float if tick_size was returned in scientific notation
+    after_decimal = len(str(tick_size).split(".")[1]) # Number of digits after the decimal for tick_size
+    return round(number, after_decimal)
+
+def get_new_stop_price(direction: str, liq_price: float, tick_size: float) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
     if direction == "long":
         return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
     elif direction == "short":
         return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
 
-def round_to_tick_size(number, tick_size: float):
-    """ Makes sure Python doesn't return a super long float for the stop order price. """
-    tick_size = "{:f}".format(tick_size) # Convert to decimal float if tick_size was returned in scientific notation
-    after_decimal = len(str(tick_size).split(".")[1]) # Number of digits after the decimal for tick_size
-    return round(number, after_decimal)
-
-def add_stops():
+def add_stops() -> None:
     """ Submits stop orders if not present. """
     for pos in pos_data:
         if pos_data[pos]["stop_loss"] is False:
@@ -129,7 +155,7 @@ def add_stops():
             elif pos_data[pos]["direction"] == "short":
                 td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
-def get_new_profit_price(direction: str, mark_price: float, initial_leverage: float, profit_target: float, tick_size: float):
+def get_new_profit_price(direction: str, mark_price: float, initial_leverage: float, profit_target: float, tick_size: float) -> float:
     """ Returns a new take profit price. 
     Calculation: mark_price + (mark_price * (profit_target / initial_leverage))
     Example: 100 + (100 * (1) / 100) = 101 """
@@ -139,7 +165,7 @@ def get_new_profit_price(direction: str, mark_price: float, initial_leverage: fl
     elif direction == "short":
         return round_to_tick_size(mark_price - (mark_price * (profit_target / initial_leverage)), tick_size)
 
-def add_take_profits():
+def add_take_profits() -> None:
     """ Submits take-profit orders if not present and take_profit is True """
     if take_profit is True:
         for pos in pos_data:
@@ -157,8 +183,8 @@ def add_take_profits():
                 elif pos_data[pos]["direction"] == "short":
                     td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='down', stopPrice=profit_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
-def check_stops():
-    """ Cancels stops with no matching positions and redoes stops if position size or liquidation price changes """
+def check_stops() -> None:
+    """ Cancels stops with no matching positions and redo stops if position size or liquidation price changes """
 
     # Check if no stops and return
     if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}: # No stops
@@ -171,7 +197,7 @@ def check_stops():
             td_client.cancel_all_stop_order(item["symbol"])
             # check_stops() should only get this far if called before add_stops()
 
-        # Should this be split into two functions here?
+        # Should this be split into two functions here? Since we are already in a nested for loop, we may as well do everything we need instead of making another one
 
         # Redo stops if position amount changes
         for pos in pos_data.items(): # Each item is a tuple containing a string and dictionary: ('symbol', {direction:, liq_price:, ...})
@@ -209,29 +235,26 @@ def main():
     """ Happy Trading :) """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
-        try:
-            # Get data
-            get_positions()            
-            get_stops()
-            get_symbol_list()
-            get_position_data()
+        """ try: """
+        if not initialized:
+            init_surreal()
+        get_positions()            
+        get_stops()
+        get_symbol_list()
+        get_position_data()            
+        add_stops()
+        add_take_profits()
+        check_stops()           
 
-            # Run check stops in case a position just closed
-            check_stops()
-            
-            # Make changes to stop orders if required
-            add_stops()
-            add_take_profits()
-            check_stops()            
+        # Display active positions
+        if positions:
+            print(f"> Active positions: {symbols}", end="\r")
 
-            # Display active positions
-            if positions != {'code': '200000', 'data': []}:
-                print(f"> Active positions: {symbols}", end="\r")
-            time.sleep(loop_wait)
+        time.sleep(loop_wait)
 
-        except Exception as e:
+        """ except Exception as e:
             print(e)
-            pass
+            pass """
 
 if __name__ == '__main__':
     main()
