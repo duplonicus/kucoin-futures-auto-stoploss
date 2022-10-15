@@ -17,11 +17,15 @@ td_client = TradeData(key=api_key, secret=api_secret, passphrase=api_passphrase,
 md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
 # Options
-loop_wait = 3 # How many seconds between each loop
+loop_wait = 3 # Number of seconds between each loop
 ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
-take_profit = True # Set to True to enable take profit orders at the below profit target percentage
-profit_target_pcnt = 0.9 # % as float of profit on initial margin
-database = False # Set to True after installing SurrealDB: https://surrealdb.com/
+take_profit = True # Set to True to enable take profit orders at the profit_target_pcnt
+profit_target_pcnt = 0.9 # % as float of profit on initial margin. 0.9 is 90%.
+trailing = False # TODO: new stop price calculation, not to interfere with current functionality and vise-versa, only update add_stops() and check_stops()
+start_trailing_pcnt = .15 # Profit percentage to start trailing at
+trailing_step_pcnt = .1 # Increase in profit percentage required to bump trailing stop
+leading_profit = False
+database = True # Set to True after installing SurrealDB: https://surrealdb.com/
 
 # Variables
 positions = td_client.get_all_position()
@@ -37,7 +41,12 @@ def init_surreal() -> None:
     global symbols_dict, initialized
     if database:
         print("Retreiving data from symbol table...")
-        table = event_loop.run_until_complete(select_all("symbol"))
+        try:
+            table = event_loop.run_until_complete(select_all("symbol"))
+        except Exception as e:
+            initialized = True
+            print(e)
+            return
         if table == []: # If empty or doesn't exist
             initialized = True
             return
@@ -69,7 +78,7 @@ def get_symbol_list() -> list:
     symbols = []
     if positions is False:
         return symbols
-    for count, position in enumerate(positions):
+    for count, position in enumerate(positions): # Have to enumerate because it's a list
         symbols.append(positions[count]["symbol"])
     return symbols
 
@@ -117,7 +126,7 @@ def get_position_data() -> dict:
         else:
             symbol_data = symbols_dict[position["symbol"]]
             tick_size = float(symbol_data["tickSize"])
-            
+        # TODO: double check the math on this or find a different way but I think it's good because it eventually is rounded to an int
         initial_leverage = round(position['realLeverage'] * (1 + position['unrealisedRoePcnt'])) # This is confusing but as close as I can get. Not sure if we can get this or why not.
         # Build pos_data dictionary to make working with the data easier
         pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":tick_size, "amount":position["currentQty"], "mark_price":position["markPrice"], "initial_leverage":initial_leverage }
@@ -136,6 +145,11 @@ def get_new_stop_price(direction: str, liq_price: float, tick_size: float) -> fl
     elif direction == "short":
         return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
 
+def get_new_trailing_price(direction: str, liq_price: float, tick_size: float) -> float:
+    # 
+    trailing_price = 1
+    return round_to_tick_size(trailing_price, tick_size)
+
 def add_stops() -> None:
     """ Submits stop orders if not present. """
     for pos in pos_data:
@@ -146,7 +160,7 @@ def add_stops() -> None:
                 amount = pos_data[pos]["amount"]
             elif pos_data[pos]["amount"] < 0:
                 amount = pos_data[pos]["amount"] * -1
-            print(f'> Submitting STOP order for {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')
+            print(f'> Submitting STOP order for {pos_data[pos]["initial_leverage"]} X {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')
             # Stop orders
             if pos_data[pos]["direction"] == "long":
                 td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
@@ -174,7 +188,7 @@ def add_take_profits() -> None:
                     amount = pos_data[pos]["amount"]
                 elif pos_data[pos]["amount"] < 0:
                     amount = pos_data[pos]["amount"] * -1
-                print(f'> Submitting TAKE PROFIT order for {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {profit_price}')
+                print(f'> Submitting TAKE PROFIT order for {pos_data[pos]["initial_leverage"]} X {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {profit_price}')
                 # Take profit orders
                 if pos_data[pos]["direction"] == "long":
                     td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='up', stopPrice=profit_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
@@ -191,9 +205,8 @@ def check_stops() -> None:
     # Cancel stops if no matching position
     for item in stops["items"]:
         if item["symbol"] not in symbols:            
-            print(f'> No position for {item["symbol"]}! Cancelling STOP {item["stop"].upper()} orders...')
+            print(f'> No position for {item["symbol"]}! Cancelling STOP {item["stop"].upper()} order...')
             td_client.cancel_all_stop_order(item["symbol"])
-            # check_stops() should only get this far if called before add_stops()
 
         # Should this be split into two functions here? Since we are already in a nested for loop, we may as well do everything we need instead of making another one
 
@@ -201,10 +214,7 @@ def check_stops() -> None:
         for pos in pos_data.items(): # Each item is a tuple containing a string and dictionary: ('symbol', {direction:, liq_price:, ...})
             new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
             # Kucoin returns a positive number for item["size"], make sure ours is too
-            if pos[1]["amount"] > 0:
-                amount = pos[1]["amount"] 
-            elif pos[1]["amount"] < 0:
-                amount = pos[1]["amount"] * -1
+            amount = pos[1]["amount"] if pos[1]["amount"] > 0 else pos[1]["amount"] * -1 # Make sure this works as a one-liner
 
             # Check if position amount doesn't match stop amount
             if item["symbol"] == pos[0] and item["size"] != amount:
@@ -233,6 +243,7 @@ def main():
     """ Happy Trading :) """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
+        # TODO: Figure out which requests are too close together though it doesn't really matter because the script will finish what it wants to do after the timeout
         try:
             if not initialized:
                 init_surreal()
