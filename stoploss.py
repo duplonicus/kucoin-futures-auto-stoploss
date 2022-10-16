@@ -2,6 +2,7 @@ from kucoin_futures.client import TradeData, MarketData
 import time
 import configparser
 from surreal_db import *
+# from strategy import *
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -12,7 +13,7 @@ api_key = config['api']['key']
 api_secret = config['api']['secret']
 api_passphrase = config['api']['passphrase']
 
-# Rest API Wrapper Client Objects
+# Kucoin REST API Wrapper Client Objects
 td_client = TradeData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
@@ -21,10 +22,12 @@ loop_wait = 3 # Number of seconds between each loop
 ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
 take_profit = True # Set to True to enable take profit orders at the profit_target_pcnt
 profit_target_pcnt = 0.9 # % as float of profit on initial margin. 0.9 is 90%.
-trailing = False # TODO: new stop price calculation, not to interfere with current functionality and vise-versa, only update add_stops() and check_stops() functions
-start_trailing_pcnt = .15 # Profit percentage to start trailing at
-trailing_step_pcnt = .1 # Increase in profit percentage required to bump trailing stop
-leading_profit = False
+trailing = True # Set to True to enable trailing stoplosses
+start_trailing_pcnt = .06 # Profit percentage to start trailing at TODO:  we can also calculate what this should be base on initial leverage so that it is always enough to make up for fees
+trailing_pcnt = .03 # Use a value lower than start_trailing_pcnt or the trade will be stopped out right away but higher than your realized loss percent due to fees or it will close at a loss
+trailing_count_pcnt = .01 # Increase in profit percentage required to bump trailing stop. .1 is every 10%
+leading_profit = False # TODO: Some reason to keep trade opened maybe?
+strategy = False # Set to true after defining a strategy
 database = True # Set to True after installing SurrealDB: https://surrealdb.com/
 
 # Variables
@@ -33,6 +36,7 @@ stops = td_client.get_open_stop_order()
 symbols = []
 pos_data = {}
 symbols_dict = {}
+trailing_stops = {} # We have to keep track of how many times the stop has been bumped to know if we should bump it again
 initialized = False
 
 # Functions
@@ -126,10 +130,17 @@ def get_position_data() -> dict:
         else:
             symbol_data = symbols_dict[position["symbol"]]
             tick_size = float(symbol_data["tickSize"])
-        # TODO: double check the math on this or find a different way but I think it's good because it eventually is rounded to an int
+        # TODO: double check the math on initial_leverage or find a different way but I think it's good because it eventually is rounded to an int. So far this is correct.
         initial_leverage = round(position['realLeverage'] * (1 + position['unrealisedRoePcnt'])) # This is confusing but as close as I can get. Not sure if we can get this or why not.
+        unrealised_pnl_pcnt = position['unrealisedPnlPcnt']
         # Build pos_data dictionary to make working with the data easier
-        pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":tick_size, "amount":position["currentQty"], "mark_price":position["markPrice"], "initial_leverage":initial_leverage }
+        if position["symbol"] in pos_data.keys():
+
+            pos_data[position["symbol"]].update({"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":tick_size, "amount":position["currentQty"], "mark_price":position["markPrice"], "initial_leverage":initial_leverage, "unrealized_pnl_pcnt":unrealised_pnl_pcnt})
+
+        else:
+            pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":tick_size, "amount":position["currentQty"], "mark_price":position["markPrice"], "initial_leverage":initial_leverage, "unrealised_pnl_pcnt":unrealised_pnl_pcnt, "stop_is_trailing":None}
+        
     return pos_data
 
 def round_to_tick_size(number, tick_size: float) -> float:
@@ -145,27 +156,52 @@ def get_new_stop_price(direction: str, liq_price: float, tick_size: float) -> fl
     elif direction == "short":
         return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
 
-def get_new_trailing_price(direction: str, trailing_step_pcnt: float, tick_size: float) -> float:
-    """ Returns a new trailing stop price based on the trailing_step_pcnt """
-    trailing_price = 1
-    return round_to_tick_size(trailing_price, tick_size) 
+def get_new_trailing_price(direction: str, mark_price: float, initial_leverage: float, trailing_pcnt: float, tick_size: float, trailing_bumps: int) -> float:
+    """ Returns a new trailing stop price
+        Calculation: Same as get_new_profit_price but with the profit target replaced with the trailing percent
+        Only called by get_stops() """
+    # trailing_bumps = trailing_stops[pos_data.key()]
+    if direction == "long":
+        return round_to_tick_size(mark_price + (mark_price * (trailing_pcnt * trailing_bumps / initial_leverage)), tick_size)
+    elif direction == "short":
+        return round_to_tick_size(mark_price - (mark_price * (trailing_pcnt * trailing_bumps / initial_leverage)), tick_size)
+
 
 def add_stops() -> None:
-    """ Submits stop orders if not present. """
+    """ Submits stop or trailing-stop orders if not present. """
     for pos in pos_data:
+        # Check if there is no stoploss order before continuing
         if pos_data[pos]["stop_loss"] is False:
             stop_price = get_new_stop_price(pos_data[pos]["direction"], pos_data[pos]["liq_price"], pos_data[pos]["tick_size"])
+            pos_data[pos]["stop_is_trailing"] = False
+            # Check if unrealized profit percentage is high enough to start trailing
+            if trailing and float(pos_data[pos]["unrealised_pnl_pcnt"]) > start_trailing_pcnt:
+                trailing_bumps = trailing_stops[pos_data[pos][0]]
+                stop_price = get_new_trailing_price(pos_data[pos]["direction"], pos_data[pos]["mark_price"], pos_data[pos]["initial_leverage"], pos_data[pos]["tick_size"], trailing_bumps)
+                pos_data[pos]["stop_is_trailing"] = True
             # Make sure amount is a positive number as required by Kucoin
             if pos_data[pos]["amount"] > 0:
                 amount = pos_data[pos]["amount"]
             elif pos_data[pos]["amount"] < 0:
                 amount = pos_data[pos]["amount"] * -1
-            print(f'> Submitting STOP order for {pos_data[pos]["initial_leverage"]} X {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')
-            # Stop orders
-            if pos_data[pos]["direction"] == "long":
-                td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
-            elif pos_data[pos]["direction"] == "short":
-                td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+
+            # Regular stop orders
+            if pos_data[pos]["stop_is_trailing"] is False:
+                print(f'> Submitting STOP order for {pos_data[pos]["initial_leverage"]} X {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')
+                # Stop orders
+                if pos_data[pos]["direction"] == "long":
+                    td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
+                elif pos_data[pos]["direction"] == "short":
+                    td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+
+            # Trailing stop orders
+            if pos_data[pos]["stop_is_trailing"]:   
+                print(f'> Submitting TRAILING STOP order for {pos_data[pos]["initial_leverage"]} X {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')             
+                if pos_data[pos]["direction"] == "long":
+                    td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+                elif pos_data[pos]["direction"] == "short":
+                    td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+                trailing_stops[pos_data[pos].key()] += 1
 
 def get_new_profit_price(direction: str, mark_price: float, initial_leverage: float, profit_target: float, tick_size: float) -> float:
     """ Returns a new take profit price. 
@@ -196,42 +232,78 @@ def add_take_profits() -> None:
                     td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='down', stopPrice=profit_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
 def check_stops() -> None:
-    """ Cancels stops with no matching positions and redo stops if position size or liquidation price changes """
+    """ Cancels stops with no matching positions and redo stops if position size or liquidation price changes, redo stops if enough profit to bump trailing stop """
 
     # Check if no stops and return
     if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}: # No stops
         return
-
-    # Cancel stops if no matching position
+    
+    # Loop through stops
     for item in stops["items"]:
+
+        # Cancel stops if no matching position
         if item["symbol"] not in symbols:            
             print(f'> No position for {item["symbol"]}! Cancelling STOP {item["stop"].upper()} order...')
             td_client.cancel_all_stop_order(item["symbol"])
+            del trailing_stops[item["symbol"]] 
+        
+        # Loop through Positions
+        for pos in pos_data.items(): # Each item is a tuple containing a string and dictionary: ('symbol', {direction:, liq_price:, ...}) = pos[0][1]
 
-        # Should this be split into two functions here? Since we are already in a nested for loop, we may as well do everything we need instead of making another one
+            # Check if stop_is_trailing so we know if we need a stoploss or trailing stoploss            
+            if item["symbol"] == pos[0] and (pos[1]["stop_is_trailing"] is None or pos[1]["stop_is_trailing"] is False):
+                new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
+            if item["symbol"] == pos[0] and trailing and pos[1]["stop_is_trailing"]: 
+                if pos[0] in trailing_stops:
+                    trailing_count = trailing_stops[pos[0]]
+                    trailing_stops.update(f"{pos[0]}:{trailing_stops[pos[0]]+1}")
+                else:
+                    trailing_stops.append(f"{pos[0]}:{1}")
+                    td_client.cancel_all_stop_order(item["symbol"])
 
-        # Redo stops if position amount changes
-        for pos in pos_data.items(): # Each item is a tuple containing a string and dictionary: ('symbol', {direction:, liq_price:, ...})
-            new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
-            # Kucoin returns a positive number for item["size"], make sure ours is too
-            amount = pos[1]["amount"] if pos[1]["amount"] > 0 else pos[1]["amount"] * -1 # Make sure this works as a one-liner
+                new_stop_price = str(get_new_trailing_price([pos][1]["direction"], [pos][1]["mark_price"], [pos][1]["initial_leverage"], [pos][1]["tick_size"], trailing_count))
 
+            # Check and redo stops if position amount changes. Kucoin returns a positive number for item["size"], make sure ours is too
+            amount = pos[1]["amount"] if pos[1]["amount"] > 0 else pos[1]["amount"] * -1
             # Check if position amount doesn't match stop amount
             if item["symbol"] == pos[0] and item["size"] != amount:
                 print(f'> Position size changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
                 td_client.cancel_all_stop_order(item["symbol"])
                 add_stops()
 
-            # Redo stops if stop price doesn't match position liquidation price. Don't compare to take profit price
-            if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
+            # TODO: Check and redo stops if time to bump trailing stop
+            if item["symbol"] == pos[0] and item["stopPrice"] < new_stop_price:
                 if item["stop"] == "down" and pos[1]["direction"] == "long": # Take profit of long
                     continue
                 elif item["stop"] == "up" and pos[1]["direction"] == "short": # Take profit of short
                     continue
                 elif item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short": # The stops you are looking for
-                    print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
+                    print(f'> Bumping trailing stop for {item["symbol"]}! Resubmitting STOP {item["stop"].upper()} order...')
+                    td_client.cancel_all_stop_order(item["symbol"])
+                    pos[1]["stop_is_trailing"] = True
+                    trailing_stops[pos[0]].update(f"{pos[0]}:{trailing_stops[pos[0]] + 1}") 
+                    add_stops()
+
+            # Redo stops if stop price doesn't match position liquidation price. Don't compare to take profit price. Don't run if position has a trailing stop
+            if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price and pos[1]["stop_is_trailing"] is False:
+                if item["stop"] == "down" and pos[1]["direction"] == "long": # Take profit of long
+                    continue
+                elif item["stop"] == "up" and pos[1]["direction"] == "short": # Take profit of short
+                    continue
+                elif item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short": # The stops you are looking for
+                    print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting STOP {item["stop"].upper()} order...')
                     td_client.cancel_all_stop_order(item["symbol"])
                     add_stops()
+            
+            # Buy
+            """ if strategy:
+                buy() """
+
+""" def buy():
+    check_condition()
+    if buy_trigger is True:
+        # Add code for what to do if your buy_condition is True        
+        print(f"Your BUY CONDITION has been triggered for {pos[0]}!!!") """
 
 # Debugging
 """ print(f"Positions: -------\\\n{positions}")
@@ -244,26 +316,26 @@ def main():
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
         # TODO: Figure out which requests are too close together though it doesn't really matter because the script will finish what it wants to do after the timeout
-        try:
-            if not initialized:
-                init_surreal()
-            get_positions()            
-            get_stops()
-            get_symbol_list()
-            get_position_data()            
-            add_stops()
-            add_take_profits()
-            check_stops()           
+        """ try: """
+        if not initialized:
+            init_surreal()
+        get_positions()
+        get_stops()
+        get_symbol_list()
+        get_position_data()
+        add_stops()
+        add_take_profits()
+        check_stops()
 
-            # Display active positions
-            if positions:
-                print(f"> Active positions: {symbols}", end="\r")
+        # Display active positions
+        if positions:
+            print(f"> Active positions: {symbols}", end="\r")
 
-            time.sleep(loop_wait)
+        time.sleep(loop_wait)
 
-        except Exception as e:
+        """ except Exception as e:
             print(e)
-            pass
+            pass """
 
 if __name__ == '__main__':
     main()
