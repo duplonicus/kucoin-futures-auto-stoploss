@@ -1,9 +1,21 @@
-from kucoin_futures.client import MarketData
+from kucoin_futures.client import MarketData, UserData
+import configparser
 import pandas as pd
 
-# Example strategy for Golden Cross trades
+""" Example strategy for Golden Cross trades """
 
-md_client = MarketData(key='', secret='', passphrase='', is_sandbox=False, url='https://api-futures.kucoin.com')
+# Config parser for API connection info
+config = configparser.ConfigParser()
+config.read("secret.ini")
+
+# Connection info
+api_key = config['api']['key']
+api_secret = config['api']['secret']
+api_passphrase = config['api']['passphrase']
+
+# Kucoin REST API Wrapper Client Objects
+td_client = UserData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
+md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
 # Options
 timeframe = 15
@@ -12,20 +24,19 @@ watchlist = ['FTMUSDTM', 'VRAUSDTM'] # Add some symbols TODO: start watchlist wi
 # Variables
 buy_long = False
 sell_short = False
-ema50 = None
-ema200 = None
+ema50 = 1
+ema200 = 2
 long_condition = ema50 > ema200
 short_condition = ema50 < ema200
 
-
-
+# Functions
 def check_condition() -> bool: 
     """ Do something to make the conditions True """
     for symbol in watchlist:
         k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks. See below.
         df = pd.DataFrame(k_lines)
         print(df)
-        
+
 
         # Do some maths on the dataframe
 
