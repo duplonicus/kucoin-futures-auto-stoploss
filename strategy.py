@@ -1,6 +1,7 @@
 from kucoin_futures.client import MarketData, UserData
 import configparser
 import pandas as pd
+import pandas_ta as ta
 
 """ Example strategy for Golden Cross (50 EMA crossing 200 EMA) trades on 1 minute timeframe """
 
@@ -32,6 +33,7 @@ ema50 = 1
 ema200 = 2
 long_condition = ema50 > ema200
 short_condition = ema50 < ema200
+k_line_columns = ["datetime", "open", "high", "low", "close", "volume"]
 
 # Functions
 def check_long_condition() -> None: 
@@ -39,6 +41,8 @@ def check_long_condition() -> None:
     for symbol in watchlist:
         k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks. See below.
         df = pd.DataFrame(k_lines)
+        df.columns = k_line_columns
+        df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         print(df)
 
         # Do some maths on the dataframe
@@ -53,6 +57,8 @@ def check_short_condition() -> None:
     for symbol in watchlist:
         k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks. See below.
         df = pd.DataFrame(k_lines)
+        df.columns = k_line_columns
+        df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         print(df)
 
         # Do some maths on the dataframe
@@ -78,14 +84,6 @@ Example k_line data:
             7250,         //Lowest price
             7463.55,      //Close price
             0             //Trading volume
-        ],
-        [ //Not sure what this part is. Don't think we need it. Previous candle?
-            1575374400000, 
-            7464.37,
-            8297.85,
-            7273.02,
-            7491.44,
-            0
         ]
     ]
 } """
