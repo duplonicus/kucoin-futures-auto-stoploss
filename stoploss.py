@@ -1,6 +1,10 @@
+"""
+Kucoin Futures automatic stops, trailing stops, take profits, and algo-trading
+"""
 from kucoin_futures.client import TradeData, MarketData
 import time
 import configparser
+import requests
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -21,11 +25,11 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 loop_wait = 3 # Number of seconds between each loop
 ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
 take_profit = True # Set to True to enable take profit orders at the profit_target_pcnt
-profit_target_pcnt = 0.9 # Unrealized ROE percent target
+profit_target_pcnt = 0.6 # Unrealized ROE percent target
 trailing = True # Set to True to enable trailing stoplosses
-start_trailing_pcnt = .1 # Unrealized ROE percent to start trailing at. TODO: Calculate what this should be based on initial leverage so that it is always enough to make up for fees
+start_trailing_pcnt = .2 # Unrealized ROE percent to start trailing at. TODO: Calculate what this should be based on initial leverage so that it is always enough to make up for fees
 trailing_pcnt = .04 # Used in trailing stop calculation. Use a value lower than start_trailing_pcnt or the trade will be stopped out right away but higher than your realized loss percent due to fees or it will close at a loss
-trailing_count_pcnt = .1 # Increase in unrealized ROE percent required to bump trailing stop
+trailing_count_pcnt = .05 # Increase in unrealized ROE percent required to bump trailing stop
 #leading_profit = False # TODO: Some reason to keep trade opened maybe?
 database = True # Set to True after installing SurrealDB: https://surrealdb.com/
 if database:
@@ -44,9 +48,22 @@ trailing_stops = {} # We have to keep track of how many times the stop has been 
 initialized = False
 
 # Functions
-def init_surreal() -> None:    
-    """ For real? """     
+def init() -> None:
+    """ For real? """
     global symbols_dict, initialized
+    greeting = """K  K                           FFFF       t                         
+K K                ii          F          t                         
+KK   u  u  ccc ooo    nnn      FFF  u  u ttt u  u rrr eee  ss       
+K K  u  u c    o o ii n  n     F    u  u  t  u  u r   e e  s        
+K  K  uuu  ccc ooo ii n  n     F     uuu  tt  uuu r   ee  ss        
+PPPP              t                  M   M                          
+P   P         ii  t  ii              MM MM                          
+PPPP  ooo  ss    ttt    ooo nnn      M M M  aa nnn   aa ggg eee rrr 
+P     o o  s  ii  t  ii o o n  n     M   M a a n  n a a g g e e r   
+P     ooo ss  ii  tt ii ooo n  n     M   M aaa n  n aaa ggg ee  r   
+                                                          g         
+                                                        ggg         """
+    print(greeting)
     if database:
         print("Retreiving data from symbol table...")
         try:
@@ -80,8 +97,8 @@ def get_stops() -> dict:
     stops = td_client.get_open_stop_order()
     return stops
 
-def get_symbol_list() -> list: 
-    """ Returns a list of symbols from positions. """   
+def get_symbol_list() -> list:
+    """ Returns a list of symbols from positions. """
     global symbols, pos_data
     symbols = []
     if not positions:
@@ -212,9 +229,8 @@ def add_stops() -> None:
                     td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
                 elif pos_data[pos]["direction"] == "short":
                     td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+                
                 trailing_stops.update({pos[0]:trailing_count + 1})
-                del pos_data[pos]["stop_is_trailing"]
-                pos_data[pos]["stop_is_trailing"] = True
 
 def get_new_profit_price(direction: str, mark_price: float, initial_leverage: float, profit_target: float, tick_size: float) -> float:
     """ Returns a new take profit price. 
@@ -271,8 +287,8 @@ def check_stops() -> None:
                 pos[1]["stop_is_trailing"] = False
             # Already a trailing stop
             if trailing and item["symbol"] == pos[0] and pos[0] in trailing_stops: 
-                    trailing_count = trailing_stops[pos[0]]
-                    trailing_stops.update({pos[0]:trailing_count})
+                trailing_count = trailing_stops[pos[0]]
+                trailing_stops.update({pos[0]:trailing_count})
             # Not already a trailing stop        
             print("Unrealised ROE > Start Trailing?", float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt, '\n', "unrealised_roe_pcnt", float(pos[1]["unrealised_roe_pcnt"]), '\n', "start_trailing_pcnt", start_trailing_pcnt, "\n")
             if float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt and pos[0] not in trailing_stops:
@@ -318,12 +334,12 @@ def check_stops() -> None:
 def buy():
     if check_long_condition() is True:
         # Add code for what to do if your buy condition is True        
-        print(f"Your BUY CONDITION has been triggered!!!")
+        pass
         
-def sell():    
+def sell():
     if check_short_condition() is True:
-        # Add code for what to do if your sell condition is True        
-        print(f"Your SELL CONDITION has been triggered!!!")
+        # Add code for what to do if your sell condition is True
+        pass
 
 # Debugging - This will break the script if there are no positions. Comment out if so.
 try:
@@ -334,14 +350,14 @@ try:
 except:
     print("You Fool!")
 
-def main(): 
+def main():
     """ Happy Trading :) """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
         # TODO: Figure out which requests are too close together though it doesn't really matter because the script will finish what it wants to do after the timeout
         try:
             if not initialized:
-                init_surreal()
+                init()
             get_positions()
             get_stops()
             get_symbol_list()
@@ -361,7 +377,8 @@ def main():
             time.sleep(loop_wait)
         
         except KeyboardInterrupt:
-            print("Nice trades!!! See you tomorrow... :)")
+            quote = requests.get("https://zenquotes.io/api/random")
+            print(quote.json()[0]["q"], "Nice trades!!! See you tomorrow... :)                                          ")
             quit()
 
         except Exception as e:

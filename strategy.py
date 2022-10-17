@@ -22,9 +22,8 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 # Options
 timeframe = 1
 watchlist = ['FTMUSDTM', 'VRAUSDTM'] # Add some symbols TODO: start watchlist with symbols from the symbol table
-
-long = True
-short = True
+long = True # Enable longs
+short = True # Enable longs
 
 # Variables
 longs = {}
@@ -32,12 +31,13 @@ shorts = {}
 k_line_columns = ["datetime", "open", "high", "low", "close", "volume"]
 cross_up = None
 cross_down = None
-first_loop = True
+first_check_long = True
+first_check_short = True
 
 # Functions
 def check_long_condition() -> bool: 
     """ Do something to make the condition True """
-    global first_loop, cross_up
+    global first_check_long, cross_up
     for symbol in watchlist:
         # Get k_line data from Kucoin
         k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks. See below.
@@ -50,16 +50,18 @@ def check_long_condition() -> bool:
         # Get EMAs with pandas_ta
         df['Golden Cross Up'] = df.ta.ema(50, append=True) > df.ta.ema(200, append=True)
         # Return after getting first result, compare to second result on next loop, otherwise we aren't detecting the change
-        if first_loop is True:
+        if first_check_long is True:
             cross_up = df.tail(1)['Golden Cross Up'].bool()
-            first_loop = False
+            first_check_long = False
             return
         # Check if cross_up is now false
-        if cross_up != df.tail(1)['Golden Cross Up'].bool():
-            cross_up = not cross_up
+        new_cross_up = df.tail(1)['Golden Cross Up'].bool()
+        if cross_up != new_cross_up:
+            cross_up = new_cross_up
+            print("50 EMA crossing 200 EMA UP!!")
             # Add the event to the strategy table
             try:
-                event_loop.run_until_complete(create_with_id('strategy', df.tail(1)['datetime'], df.tail(1)['Golden Cross Up'].bool()))
+                event_loop.run_until_complete(create_with_id('strategy', df.tail(1)['datetime'].dt.date, {'Golden Cross Up':df.tail(1)['Golden Cross Up'].bool()}))
             except Exception as e:
                 # Already in DB
                 pass
@@ -69,21 +71,23 @@ def check_long_condition() -> bool:
 
 def check_short_condition() -> bool: 
     """ Do something to make the condition True """  
-    global first_loop, cross_down
+    global first_check_short, cross_down
     for symbol in watchlist:
         k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks. See below Example k_line data.
         df = pd.DataFrame(k_lines)
         df.columns = k_line_columns
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         df['Golden Cross Down'] = df.ta.ema(50, append=True) < df.ta.ema(200, append=True)
-        if first_loop is True:
+        if first_check_short is True:
             cross_down = df.tail(1)['Golden Cross Down'].bool()
-            first_loop = False
+            first_check_short = False
             return
-        if cross_down != df.tail(1)['Golden Cross Down'].bool():
-            cross_down = not cross_down
+        new_cross_down = df.tail(1)['Golden Cross Down'].bool()
+        if cross_down != new_cross_down:
+            cross_down = new_cross_down
+            print("50 EMA crossing 200 EMA DOWN!!")
             try:
-                event_loop.run_until_complete(create_with_id('strategy', df.tail(1)['datetime'], df.tail(1)['Golden Cross Up'].bool()))
+                event_loop.run_until_complete(create_with_id('strategy', df.tail(1)['datetime'], {'Golden Cross Down':df.tail(1)['Golden Cross Down'].bool()}))
             except Exception as e:
                 pass
             return True

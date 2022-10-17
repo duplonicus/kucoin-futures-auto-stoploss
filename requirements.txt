@@ -1,0 +1,6 @@
+kucoin-futures-python
+surrealdb
+pandas
+pandas-ta
+requests
+pyfiglet
