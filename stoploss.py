@@ -5,6 +5,7 @@ from kucoin_futures.client import TradeData, MarketData
 import time
 import configparser
 import requests
+import pyfiglet
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -16,8 +17,16 @@ api_secret = config['api']['secret']
 api_passphrase = config['api']['passphrase']
 
 # Kucoin REST API Wrapper Client Objects
-td_client = TradeData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
-md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
+td_client = TradeData(key=api_key,
+                secret=api_secret,
+                passphrase=api_passphrase,
+                is_sandbox=False,
+                url='https://api-futures.kucoin.com')
+md_client = MarketData(key=api_key,
+                secret=api_secret,
+                passphrase=api_passphrase,
+                is_sandbox=False,
+                url='https://api-futures.kucoin.com')
 
 # TODO: Argument parser
 
@@ -51,19 +60,8 @@ initialized = False
 def init() -> None:
     """ For real? """
     global symbols_dict, initialized
-    greeting = """K  K                           FFFF       t                         
-K K                ii          F          t                         
-KK   u  u  ccc ooo    nnn      FFF  u  u ttt u  u rrr eee  ss       
-K K  u  u c    o o ii n  n     F    u  u  t  u  u r   e e  s        
-K  K  uuu  ccc ooo ii n  n     F     uuu  tt  uuu r   ee  ss        
-PPPP              t                  M   M                          
-P   P         ii  t  ii              MM MM                          
-PPPP  ooo  ss    ttt    ooo nnn      M M M  aa nnn   aa ggg eee rrr 
-P     o o  s  ii  t  ii o o n  n     M   M a a n  n a a g g e e r   
-P     ooo ss  ii  tt ii ooo n  n     M   M aaa n  n aaa ggg ee  r   
-                                                          g         
-                                                        ggg         """
-    print(greeting)
+    pyfiglet.print_figlet("Kucoin Futures Position Manager", 'alphabet', 'GREEN')    
+    print("\033[91m{}\033[00m" .format('By Duplonicus\n'))
     if database:
         print("Retreiving data from symbol table...")
         try:
@@ -80,6 +78,9 @@ P     ooo ss  ii  tt ii ooo n  n     M   M aaa n  n aaa ggg ee  r
                 symbols_dict.update(dict)
         initialized = True
         return
+    else:
+        initialized = True
+        print("Install SurrealDB!")
 
 def get_positions() -> dict:
     """ Returns a dictionary of active futures positions. """
@@ -104,8 +105,8 @@ def get_symbol_list() -> list:
     if not positions:
         pos_data.clear()
         return symbols
-    for count, position in enumerate(positions): # Have to enumerate because it's a list
-        symbols.append(positions[count]["symbol"])
+    for i, position in enumerate(positions): # Have to enumerate because it's a list?
+        symbols.append(positions[i]["symbol"])
     return symbols
 
 def get_position_data() -> dict:
@@ -113,25 +114,25 @@ def get_position_data() -> dict:
     global pos_data, symbols_dict
     if not positions:
         print(f"> No active positions... Start a trade!", end="\r")
-        pos_data = {}           
+        pos_data = {}
         return
     
     for position in positions:
         stop_loss, take_profit = False, False
         stop_price, profit_price = None, None
-
+        p = position["symbol"]
         # If posCost is > 0 the trade direction is long. If direction is 'long', stoploss is 'down', take-profit is 'up', and vise-versa
-        direction = "long" if position["posCost"] > 0 else "short"                
-        if direction == "short":            
-            for item in stops["items"]:               
+        direction = "long" if position["posCost"] > 0 else "short"
+        if direction == "short":
+            for item in stops["items"]:
                 if item["symbol"] == position["symbol"] and item["stop"] == "up":
                     stop_loss = True
                     stop_price = item["stopPrice"]
                 if item["symbol"] == position["symbol"] and item["stop"] == "down":
                     take_profit = True
                     profit_price = item["stopPrice"]
-        elif direction == "long":            
-            for item in stops["items"]:               
+        elif direction == "long":
+            for item in stops["items"]:
                 if item["symbol"] == position["symbol"] and item["stop"] == "down":
                     stop_loss = True
                     stop_price = item["stopPrice"]
@@ -150,8 +151,10 @@ def get_position_data() -> dict:
                 except Exception as e:
                     print(e)
         else:
-            symbol_data = symbols_dict[position["symbol"]]
+            symbol_data = symbols_dict[position["symbol"]] ###
             tick_size = float(symbol_data["tickSize"])
+            pos_data[position["symbol"]] = symbol_data
+            pos_data[position["symbol"]]["stop_is_trailing"] = False
         # TODO: double check the math on initial_leverage or find a different way but I think it's good because it eventually is rounded to an int. So far this is correct.
         unrealised_roe_pcnt = position['unrealisedRoePcnt']
         initial_leverage = round(position['realLeverage'] * (1 + position["unrealisedRoePcnt"])) # This is confusing but as close as I can get. Not sure if we can get this or why not.
@@ -198,6 +201,7 @@ def add_stops() -> None:
     """ Submits stop or trailing-stop orders if not present. """
     for pos in pos_data:
         # If no stoploss
+        # TODO: pos_data only has one symbol
         if pos_data[pos]["stop_loss"] is False:
             # Get the stop price TODO: Don't call both calculations
             stop_price = get_new_stop_price(pos_data[pos]["direction"], pos_data[pos]["liq_price"], pos_data[pos]["tick_size"])
@@ -275,7 +279,7 @@ def check_stops() -> None:
             print(f'> No position for {item["symbol"]}! Cancelling STOP {item["stop"].upper()} order...')
             td_client.cancel_all_stop_order(item["symbol"])
             if item["symbol"] in trailing_stops:
-                del trailing_stops[item["symbol"]] 
+                del trailing_stops[item["symbol"]]
                 del pos_data[pos[item["symbol"]]]
         
         # Loop through Positions
@@ -290,7 +294,7 @@ def check_stops() -> None:
                 trailing_count = trailing_stops[pos[0]]
                 trailing_stops.update({pos[0]:trailing_count})
             # Not already a trailing stop        
-            print("Unrealised ROE > Start Trailing?", float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt, '\n', "unrealised_roe_pcnt", float(pos[1]["unrealised_roe_pcnt"]), '\n', "start_trailing_pcnt", start_trailing_pcnt, "\n")
+            #print("Unrealised ROE > Start Trailing?", float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt, '\n', "unrealised_roe_pcnt", float(pos[1]["unrealised_roe_pcnt"]), '\n', "start_trailing_pcnt", start_trailing_pcnt, "\n")
             if float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt and pos[0] not in trailing_stops:
                 trailing_stops[pos[0]] = 1
                 trailing_count = trailing_stops[pos[0]]
@@ -299,6 +303,7 @@ def check_stops() -> None:
                 pos[1]["stop_is_trailing"] = True
                 add_stops()
             # Check if position amount changes. Kucoin returns a positive number for item["size"], make sure ours is too
+            # TODO: This isn't running
             amount = pos[1]["amount"] if pos[1]["amount"] > 0 else pos[1]["amount"] * -1
             if item["symbol"] == pos[0] and item["size"] != amount:
                 print(f'> Position size changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
@@ -378,12 +383,12 @@ def main():
         
         except KeyboardInterrupt:
             quote = requests.get("https://zenquotes.io/api/random")
-            print(quote.json()[0]["q"], "Nice trades!!! See you tomorrow... :)                                          ")
+            print(quote.json()[0]["q"], "Nice trades!!! See you tomorrow... :)")
             quit()
 
-        except Exception as e:
+        """ except Exception as e:
             print(e)
-            pass
+            pass """
 
 if __name__ == '__main__':
     main()
