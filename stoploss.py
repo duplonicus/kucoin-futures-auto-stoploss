@@ -191,50 +191,6 @@ def round_to_tick_size(number, tick_size: float) -> float:
     after_decimal = len(str(tick_size).split(".")[1]) # Number of digits after the decimal for tick_size
     return round(number, after_decimal)
 
-def get_new_stop_price(direction: str, liq_price: float, tick_size: float) -> float:
-    """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
-    if direction == "long":
-        return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
-    elif direction == "short":
-        return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
-
-def get_new_trailing_price(direction: str, mark_price: float, initial_leverage: float, trailing_pcnt: float, tick_size: float, trailing_count: int) -> float:
-    """ Returns a new trailing stop price.
-
-        Perameters 
-        -----------
-        trailing_count must be an integer >= 1.
-
-        Calculation 
-        -----------
-        mark_price +/- (mark_price * ((trailing_pcnt * trailing_count) / initial_leverage))
-
-        Example
-        -------
-        100 + (100 * (0.1 * 1 / 100)) = 100.1 """
-    if direction == "long":
-        return round_to_tick_size(mark_price + (mark_price * ((trailing_pcnt * trailing_count) / initial_leverage)), tick_size)
-    elif direction == "short":
-        return round_to_tick_size(mark_price - (mark_price * ((trailing_pcnt * trailing_count) / initial_leverage)), tick_size)
-
-def add_stops() -> None:
-    """ Submits stop orders if not present. """
-    for pos in pos_data:
-        if pos_data[pos]["stop_loss"] is False:
-            stop_price = get_new_stop_price(pos_data[pos]["direction"], pos_data[pos]["liq_price"], pos_data[pos]["tick_size"])
-            # Make sure amount is a positive number as required by Kucoin
-            if pos_data[pos]["amount"] > 0:
-                amount = pos_data[pos]["amount"]
-            elif pos_data[pos]["amount"] < 0:
-                amount = pos_data[pos]["amount"] * -1
-            print(f'> Submitting STOP order for {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')
-            # Stop orders
-            if pos_data[pos]["direction"] == "long":
-                td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
-            elif pos_data[pos]["direction"] == "short":
-                td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
-
-
 def get_new_profit_price(direction: str, mark_price: float, initial_leverage: float, profit_target: float, tick_size: float) -> float:
     """ Returns a new take profit price. 
     Calculation: mark_price + (mark_price * (profit_target / initial_leverage))
@@ -263,10 +219,56 @@ def add_take_profits() -> None:
                 elif pos_data[pos]["direction"] == "short":
                     td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='down', stopPrice=profit_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
+def get_new_stop_price(direction: str, liq_price: float, tick_size: float) -> float:
+    """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
+    if direction == "long":
+        return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
+    elif direction == "short":
+        return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
+
+def get_new_trailing_price(direction: str, mark_price: float, initial_leverage: float, trailing_pcnt: float, tick_size: float, trailing_count: int) -> float:
+    """ Returns a new trailing stop price.
+
+        Perameters 
+        -----------
+        trailing_count must be an integer >= 1.
+
+        Calculation 
+        -----------
+        mark_price +/- (mark_price * ((trailing_pcnt * trailing_count) / initial_leverage))
+
+        Example
+        -------
+        100 + (100 * (0.1 * 1 / 100)) = 100.1 """
+    if direction == "long":
+        return round_to_tick_size(mark_price + (mark_price * ((trailing_pcnt * trailing_count) / initial_leverage)), tick_size)
+    elif direction == "short":
+        return round_to_tick_size(mark_price - (mark_price * ((trailing_pcnt * trailing_count) / initial_leverage)), tick_size)
+
+def add_stops() -> None: # Don't cancel stops with add_stops()
+    """ Submits stop orders if not present. """
+    for pos in pos_data:
+        if pos_data[pos]["stop_loss"] is False:
+            stop_price = get_new_stop_price(pos_data[pos]["direction"], pos_data[pos]["liq_price"], pos_data[pos]["tick_size"])
+            # Make sure amount is a positive number as required by Kucoin
+            if pos_data[pos]["amount"] > 0:
+                amount = pos_data[pos]["amount"]
+            elif pos_data[pos]["amount"] < 0:
+                amount = pos_data[pos]["amount"] * -1
+            print(f'> Submitting STOP order for {pos} {pos_data[pos]["direction"]} position: {pos_data[pos]["amount"] * -1} contracts @ {stop_price}')
+            # Stop orders
+            if pos_data[pos]["direction"] == "long":
+                td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=pos, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
+            elif pos_data[pos]["direction"] == "short":
+                td_client.create_limit_order(reduceOnly=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
+
 def check_stops() -> None:
     """ Cancels stops with no matching positions and redo stops if position size or liquidation price changes """
 
     """ Cases """
+    #Check passed
+    command = "check_passed"
+
     # No stops
     if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}: # No stops
         command = "no_stops"
@@ -277,8 +279,8 @@ def check_stops() -> None:
             command = "stop_without_position"
 
     # Position amount changed
-    for item in stops["items"]:
-        for pos in pos_data.items():
+    for pos in pos_data.items():
+        for item in stops["items"]:        
             # Kucoin returns a positive number for item["size"], make sure ours is too
             if pos[1]["amount"] > 0:
                 amount = pos[1]["amount"] 
@@ -286,16 +288,24 @@ def check_stops() -> None:
                 amount = pos[1]["amount"] * -1
             # Check if position amount doesn't match stop amount
             if item["symbol"] == pos[0] and item["size"] != amount:
-                ommand = "stop_amount"
+                command = "stop_amount"
 
     # Liquidation price changed
-    for item in stops["items"]:
-        for pos in pos_data.items():
-            if item["symbol"] == pos[0] and item["stopPrice"] != get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]):
-                if pos[1]['direction'] == "long" and item['stop'] == 'down':
-                    command = "liquidation_price"
-                if pos[1]['direction'] == "short" and item['stop'] == 'up':
-                    command = "liquidation_price"
+    for pos in pos_data.items():
+        if pos[1]['direction'] == 'long':
+            for item in stops["items"]:  
+                if item['symbol'] == pos[0]:                                   
+                    if item["stop"] == "down":
+                        new_stop_price = get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]) 
+                        if item["symbol"] == pos[0] and float(item["stopPrice"]) != new_stop_price: # If stop symbol matches, and stop price is wrong
+                            command = "liquidation_price"
+        elif pos[1]['direction'] == 'short':
+            for item in stops["items"]:  
+                if item['symbol'] == pos[0]:                                   
+                    if item["stop"] == "up":
+                        new_stop_price = get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]) 
+                        if item["symbol"] == pos[0] and float(item["stopPrice"]) != new_stop_price: # If stop symbol matches, and stop price is wrong
+                            command = "liquidation_price"
 
     """ Matches """                 
     match command:        
@@ -309,6 +319,7 @@ def check_stops() -> None:
                 if item["symbol"] not in symbols:
                     print(f'> No position for {item["symbol"]}! Cancelling STOP {item["stop"].upper()} orders...')
                     td_client.cancel_all_stop_order(item["symbol"])
+                    add_stops()
             return
         
         # Position amount changed
@@ -316,15 +327,20 @@ def check_stops() -> None:
             for item in stops["items"]:
                 print(f'> Position size changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
                 td_client.cancel_all_stop_order(item["symbol"])
+                add_stops()
             return
 
         # Liquidation price changed
         case 'liquidation_price':
             for item in stops["items"]:
                 for pos in pos_data.items():
-                    if item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short": # The stops you are looking for
-                        print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
-                        td_client.cancel_all_stop_order(item["symbol"])
+                    print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
+                    td_client.cancel_all_stop_order(item["symbol"])
+                    add_stops()
+            return
+
+        # Check passed
+        case 'check_passed':
             return
 
 def buy():
