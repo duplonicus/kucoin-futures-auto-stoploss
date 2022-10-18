@@ -1,5 +1,5 @@
 """
-Kucoin Futures automatic stops, trailing stops, take profits, and algo-trading
+Kucoin Futures automatic stops, trailing-stops, take-profits, and algo-trading
 """
 from kucoin_futures.client import TradeData, MarketData
 import time
@@ -30,45 +30,71 @@ md_client = MarketData(key=api_key,
 
 # TODO: Argument parser
 
-# Options
-loop_wait = 3 # Number of seconds between each loop
-ticks_from_liq = 2 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
-take_profit = True # Set to True to enable take profit orders at the profit_target_pcnt
-profit_target_pcnt = 0.6 # Unrealized ROE percent target
-trailing = True # Set to True to enable trailing stoplosses
-start_trailing_pcnt = .2 # Unrealized ROE percent to start trailing at. TODO: Calculate what this should be based on initial leverage so that it is always enough to make up for fees
-trailing_pcnt = .04 # Used in trailing stop calculation. Use a value lower than start_trailing_pcnt or the trade will be stopped out right away but higher than your realized loss percent due to fees or it will close at a loss
-trailing_count_pcnt = .05 # Increase in unrealized ROE percent required to bump trailing stop
-#leading_profit = False # TODO: Some reason to keep trade opened maybe?
-database = True # Set to True after installing SurrealDB: https://surrealdb.com/
+""" Options """
+# Number of seconds between each loop
+loop_wait = 3
+
+# Number of ticks away from liquidation price for stop price. Must be integer >= 1.
+ticks_from_liq = 2
+
+# Set to True to enable take profit orders at the profit_target_pcnt
+take_profit = True
+
+# Unrealized ROE percent target
+profit_target_pcnt = 0.6
+
+# Set to True to enable trailing stoplosses
+trailing = True
+
+# Unrealized ROE percent to start trailing at.
+# TODO: Calculate what this should be based on initial leverage so that it is always enough to make up for fees
+start_trailing_pcnt = .2
+
+# Used in trailing stop calculation.
+# Use a value lower than start_trailing_pcnt or the trade will be stopped out
+# right away, but higher than your realized loss percent due to fees or it will close at a loss
+trailing_pcnt = .04
+
+# Increase in unrealized ROE percent required to bump trailing stop
+trailing_count_pcnt = .05
+# TODO: Some reason to keep trade opened maybe?
+#leading_profit = False
+
+# Set to True after installing SurrealDB: https://surrealdb.com/
+database = True
 if database:
     from surreal_db import *
-strategy = True # Set to true after defining a strategy and setting up SurrealDB
+
+# Set to true after defining a strategy and setting up SurrealDB
+strategy = True
 if strategy:
     from strategy import *
 
-# Variables
+""" Variables """
 positions = td_client.get_all_position()
 stops = td_client.get_open_stop_order()
 symbols = []
 pos_data = {}
 symbols_dict = {}
-trailing_stops = {} # We have to keep track of how many times the stop has been increased to know if we should increase it again. Multiplied with profit_pcnt
+# We have to keep track of how many times the stop has been increased to know
+# if we should increase it again. Multiplied with profit_pcnt
+trailing_stops = {}
 initialized = False
 
-# Functions
+""" Functions """
 def init() -> None:
-    """ For real? """
+    """ Get data from surrealDB """
     global symbols_dict, initialized
     pyfiglet.print_figlet("Kucoin Futures Position Manager", 'alphabet', 'GREEN')    
     print("\033[91m{}\033[00m" .format('By Duplonicus\n'))
     if database:
-        print("Retreiving data from symbol table...")
+        print("> Retreiving data from symbol table...")
         try:
             table = event_loop.run_until_complete(select_all("symbol"))
         except Exception as e:
             initialized = True
             print(e)
+            print("> Install SurrealDB!")
             return
         if table == []: # If empty or doesn't exist
             initialized = True
@@ -80,7 +106,7 @@ def init() -> None:
         return
     else:
         initialized = True
-        print("Install SurrealDB!")
+        print("> Install SurrealDB!")
 
 def get_positions() -> dict:
     """ Returns a dictionary of active futures positions. """
@@ -240,44 +266,66 @@ def add_take_profits() -> None:
 def check_stops() -> None:
     """ Cancels stops with no matching positions and redo stops if position size or liquidation price changes """
 
-    # Check if no stops and return
+    """ Cases """
+    # No stops
     if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}: # No stops
-        return
+        command = "no_stops"
 
-    # Cancel stops if no matching position
+    # Stop has no position
     for item in stops["items"]:
-        if item["symbol"] not in symbols:            
-            print(f'> No position for {item["symbol"]}! Cancelling STOP {item["stop"].upper()} orders...')
-            td_client.cancel_all_stop_order(item["symbol"])
-            # check_stops() should only get this far if called before add_stops()
+        if item["symbol"] not in symbols:
+            command = "stop_without_position"
 
-        # Should this be split into two functions here? Since we are already in a nested for loop, we may as well do everything we need instead of making another one
-
-        # Redo stops if position amount changes
-        for pos in pos_data.items(): # Each item is a tuple containing a string and dictionary: ('symbol', {direction:, liq_price:, ...})
-            new_stop_price = str(get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]))
+    # Position amount changed
+    for item in stops["items"]:
+        for pos in pos_data.items():
             # Kucoin returns a positive number for item["size"], make sure ours is too
             if pos[1]["amount"] > 0:
                 amount = pos[1]["amount"] 
             elif pos[1]["amount"] < 0:
                 amount = pos[1]["amount"] * -1
-
             # Check if position amount doesn't match stop amount
             if item["symbol"] == pos[0] and item["size"] != amount:
+                ommand = "stop_amount"
+
+    # Liquidation price changed
+    for item in stops["items"]:
+        for pos in pos_data.items():
+            if item["symbol"] == pos[0] and item["stopPrice"] != get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"]):
+                if pos[1]['direction'] == "long" and item['stop'] == 'down':
+                    command = "liquidation_price"
+                if pos[1]['direction'] == "short" and item['stop'] == 'up':
+                    command = "liquidation_price"
+
+    """ Matches """                 
+    match command:        
+        # No stops
+        case 'no_stops':
+            return
+
+        # Stop has no position
+        case 'stop_without_position':
+            for item in stops["items"]:
+                if item["symbol"] not in symbols:
+                    print(f'> No position for {item["symbol"]}! Cancelling STOP {item["stop"].upper()} orders...')
+                    td_client.cancel_all_stop_order(item["symbol"])
+            return
+        
+        # Position amount changed
+        case 'stop_amount':
+            for item in stops["items"]:
                 print(f'> Position size changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
                 td_client.cancel_all_stop_order(item["symbol"])
-                add_stops()
+            return
 
-            # Redo stops if stop price doesn't match position liquidation price. Don't compare to take profit price
-            if item["symbol"] == pos[0] and item["stopPrice"] != new_stop_price:
-                if item["stop"] == "down" and pos[1]["direction"] == "long": # Take profit of long
-                    continue
-                elif item["stop"] == "up" and pos[1]["direction"] == "short": # Take profit of short
-                    continue
-                elif item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short": # The stops you are looking for
-                    print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
-                    td_client.cancel_all_stop_order(item["symbol"])
-                    add_stops()
+        # Liquidation price changed
+        case 'liquidation_price':
+            for item in stops["items"]:
+                for pos in pos_data.items():
+                    if item["stop"] == "down" and pos[1]["direction"] == "long" or item["stop"] == "up" and pos[1]["direction"] == "short": # The stops you are looking for
+                        print(f'> Liquidation price changed for {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
+                        td_client.cancel_all_stop_order(item["symbol"])
+            return
 
 def buy():
     if check_long_condition() is True:
@@ -299,7 +347,7 @@ except:
     print("You Fool!")
 
 def main():
-    """ Happy Trading :) """
+    """ Take from the market maker """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
         # TODO: Figure out which requests are too close together though it doesn't really matter because the script will finish what it wants to do after the timeout
