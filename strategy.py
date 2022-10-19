@@ -1,3 +1,4 @@
+from datetime import datetime
 from kucoin_futures.client import MarketData
 import configparser
 import pandas as pd
@@ -81,7 +82,8 @@ def check_short_condition() -> bool:
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         df['Golden Cross Down'] = df.ta.ema(50, append=True) < df.ta.ema(200, append=True)
         print({'datetime':df.tail(1)['datetime'].to_json()})
-        data = {'Golden Cross Up':df.tail(1)['Golden Cross Down'].bool(), 'datetime':df.tail(1)['datetime'], 'timeframe':timeframe}
+        d = datetime.now()
+        data = {'Golden Cross Up':df.tail(1)['Golden Cross Down'].bool(), "datetime":d, 'timeframe':timeframe}
         event_loop.run_until_complete(create_all('strategy', data))
         if first_check_short is True:
             cross_down = df.tail(1)['Golden Cross Down'].bool()
