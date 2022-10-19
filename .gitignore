@@ -8,3 +8,4 @@ history.txt
 .pylintrc
 stoploss.code-workspace
 sandbox_test.py
+sandbox_stoploss.py
