@@ -47,14 +47,14 @@ profit_target_pcnt = 0.50
 trailing = True
 
 # Unrealized ROE percent to begin trailing
-start_trailing_pcnt = .15
+start_trailing_pcnt = .10
 
 # The unrealised ROE percentage for the first trailing stop
 # Use a value lower than start_trailing_pcnt or the trade will be stopped out right away,
 # but higher than your realized loss percent due to fees or it will close at a loss
-# # TODO: Calculate what this should be based on initial leverage so that it is always enough to
+# # TODO: Calculate what this should be based on initial leverage so that it is always enough to cover fees
 # It would need to be > realized PnL * 2 to break even
-trailing_pcnt = .05
+trailing_pcnt = .08
 
 # Increase in unrealized ROE percent required to bump trailing stop
 trailing_count_pcnt = .05
@@ -262,9 +262,9 @@ def get_new_trailing_price(direction: str, mark_price: float, initial_leverage: 
     elif direction == "short":
         return round_to_tick_size(1 - mark_price * ((trailing_pcnt * trailing_count) / initial_leverage), tick_size) # This is correct now
 
-def add_trailing(symbol, direction: str, amount: int, mark_price: float, initial_leverage: float, trailing_pcnt: float, tick_size: float, trailing_count: int) -> None :
+def add_trailing(symbol, direction: str, amount: int, mark_price: float | int, price: float, initial_leverage: float, trailing_pcnt: float, tick_size: float, trailing_count: int) -> None :
     """ Submits strailing stop """
-    stop_price = get_new_trailing_price(direction, mark_price, initial_leverage, trailing_pcnt, tick_size, trailing_count)
+    stop_price = get_new_trailing_price(direction, price, initial_leverage, trailing_pcnt, tick_size, trailing_count)
     if amount < 0:
         amount = amount * -1 # Make sure amount is a positive number as required by Kucoin
     td_client.create_limit_order(reduceOnly=True, type='market', side='sell', symbol=symbol, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
@@ -280,7 +280,7 @@ def check_stops() -> None:
     command = "check_passed"
 
     # Case: No stops
-    if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}: # No stops
+    if stops == {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}:
         command = "no_stops"
 
     # Case: Stop has no position
@@ -321,19 +321,18 @@ def check_stops() -> None:
                                 command = "liquidation_price"
 
     # Case: Unrealised ROE high enough to start trailing
-        for pos in pos_data.items():
-                if pos[1]['direction'] == 'long' and pos[0] not in trailing_stops:
-                    for item in stops["items"]:
-                        if item["symbol"] == pos[0] and float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt:
-                            print(f'> {pos[1]["initial_leverage"]} X {item["symbol"]} {pos[1]["direction"]} position @ {round(pos[1]["unrealised_roe_pcnt"] * 100, 2)}% profit is ready for TRAILING STOP!')
-                            command = "start_trailing"
-                elif pos[1]['direction'] == 'short'and pos[0] not in trailing_stops:
-                    for item in stops["items"]:
-                        if item['symbol'] == pos[0] and item["stop"] == "up":
-                            new_stop_price = get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"])
-                            if item["symbol"] == pos[0] and float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt:
-                                print(f'> {pos[1]["initial_leverage"]} X {item["symbol"]} {pos[1]["direction"]} position @ {round(pos[1]["unrealised_roe_pcnt"] * 100, 2)}% profit and is ready for TRAILING STOP!')
-                                command = "start_trailing"
+    for pos in pos_data.items():
+        if pos[1]['direction'] == 'long' and pos[0] not in trailing_stops:
+            for item in stops["items"]:
+                if item["symbol"] == pos[0] and float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt:
+                    print(f'> {pos[1]["initial_leverage"]} X {item["symbol"]} {pos[1]["direction"]} position @ {round(pos[1]["unrealised_roe_pcnt"] * 100, 2)}% profit ready for TRAILING STOP!')
+                    command = "start_trailing"
+        elif pos[1]['direction'] == 'short'and pos[0] not in trailing_stops:
+            for item in stops["items"]:
+                if item['symbol'] == pos[0] and item["stop"] == "up":
+                    if item["symbol"] == pos[0] and float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt:
+                        print(f'> {pos[1]["initial_leverage"]} X {item["symbol"]} {pos[1]["direction"]} position @ {round(pos[1]["unrealised_roe_pcnt"] * 100, 2)}% profit ready for TRAILING STOP!')
+                        command = "start_trailing"
 
     # Case: Trailing stop ready to be bumped - comes befor start_trailing so we know if not to run start_trailing
     for pos in pos_data.items():
@@ -391,21 +390,6 @@ def check_stops() -> None:
             add_stops()
             return
 
-        # Match: Trailing stop ready to be bumped
-        case 'bump_trailing':
-            for pos in pos_data.items():
-                if pos[1]['direction'] == 'long':
-                    for item in stops["items"]:
-                        if item['symbol'] == pos[0] and item["stop"] == "down":
-                            count = trailing_stops[item['symbol']]['count']
-                            add_trailing(item['symbol'], pos[1]['direction'], item['size'], pos[1]['mark_price'], pos[1]['initial_leverage'], trailing_pcnt, pos[1]['tick_size'], count)
-
-                elif pos[1]['direction'] == 'short':
-                    for item in stops["items"]:
-                        if item['symbol'] == pos[0] and item["stop"] == "up":
-                            add_trailing(item['symbol'], pos[1]['direction'], item['size'], pos[1]['mark_price'], pos[1]['initial_leverage'], trailing_pcnt, pos[1]['tick_size'], count)
-            return
-
         # Match: Unrealised ROE high enough to start trailing
         case 'start_trailing':
 
@@ -424,6 +408,20 @@ def check_stops() -> None:
             return
 
         # Match: Trailing stop ready to be bumped
+        case 'bump_trailing':
+            for pos in pos_data.items():
+                if pos[1]['direction'] == 'long':
+                    for item in stops["items"]:
+                        if item['symbol'] == pos[0] and item["stop"] == "down":
+                            count = trailing_stops[item['symbol']]['count']
+                            add_trailing(item['symbol'], pos[1]['direction'], item['size'], pos[1]['mark_price'], pos[1]['initial_leverage'], trailing_pcnt, pos[1]['tick_size'], count)
+                elif pos[1]['direction'] == 'short':
+                    for item in stops["items"]:
+                        if item['symbol'] == pos[0] and item["stop"] == "up":
+                            add_trailing(item['symbol'], pos[1]['direction'], item['size'], pos[1]['mark_price'], pos[1]['initial_leverage'], trailing_pcnt, pos[1]['tick_size'], count)
+            return
+
+        # Match: Trailing stop ready to be bumped
         case 'bump_stop':
             # cancel stops
             # add stops or new function?
@@ -433,12 +431,12 @@ def check_stops() -> None:
         case 'check_passed':
             return
 
-def buy():
+def buy() -> None:
     if check_long_condition() is True:
         # Add code for what to do if your buy condition is True
         pass
 
-def sell():
+def sell() -> None:
     if check_short_condition() is True:
         # Add code for what to do if your sell condition is True
         pass
@@ -453,7 +451,7 @@ except:
     print("You Fool!")
 
 def main():
-    """ Take from the market maker """
+    """ Happy Trading! """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
         # TODO: Figure out which requests are too close together though it doesn't really matter because the script will finish what it wants to do after the timeout

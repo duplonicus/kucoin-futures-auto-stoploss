@@ -1,8 +1,10 @@
 # kucoin-futures-auto-stoploss
 
+## Features
+
 Automatic stop-losses, trailing stop-losses, take-profits, and algo-trading
 
-___
+## About
 
 The main purpose of this script is to prevent liquidation events. When a position exists or is entered, it creates a stoploss and take-profit order at the specified targets, resubmits the orders if the position size or liquidation price changes, or cancels the orders if the position is closed. It can also manage trailing-stops at the specified unrealized ROE percentages.
 
@@ -11,8 +13,6 @@ The orders appear on the Stop Orders tab and the trader can still use the stop/t
 Even if the stop is only a few ticks away from the liquidation price, being stopped out is better than being liquidated because it preserves your maintenance margin. More info on this [here](https://medium.com/@Austerity_Sucks/why-you-should-never-use-your-liquidation-price-as-a-stop-loss-on-bitcoin-futures-30655f280ddd).
 
 ## Installation
-
-___
 
 <details>
 <summary>Instructions
@@ -38,6 +38,8 @@ ___
         passphrase =
 
 </details>
+
+</br>
 
 ## Algo-trading
 
