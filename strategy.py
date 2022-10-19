@@ -1,10 +1,10 @@
-from kucoin_futures.client import MarketData, UserData
+from kucoin_futures.client import MarketData
 import configparser
 import pandas as pd
 import pandas_ta as ta
 from surreal_db import *
 
-""" Example strategy for Golden Cross (50 EMA crossing 200 EMA) trades on 1 minute timeframe """
+""" Example strategy for Golden Cross (50 EMA crossing 200 EMA) on 1 minute timeframe """
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -16,26 +16,27 @@ api_secret = config['api']['secret']
 api_passphrase = config['api']['passphrase']
 
 # Kucoin REST API Wrapper Client Objects
-#ud_client = UserData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
 # Options
 timeframe = 1
-watchlist = ['FTMUSDTM', 'VRAUSDTM'] # Add some symbols TODO: start watchlist with symbols from the symbol table
+watchlist = ('FTMUSDTM', 'VRAUSDTM') # Add some symbols
 long = True # Enable longs
-short = True # Enable longs
+short = True # Enable shorts
 
 # Variables
 longs = {}
 shorts = {}
-k_line_columns = ["datetime", "open", "high", "low", "close", "volume"]
 cross_up = None
 cross_down = None
 first_check_long = True
 first_check_short = True
 
+# Constants
+K_LINE_COLUMNS = ("datetime", "open", "high", "low", "close", "volume")
+
 # Functions
-def check_long_condition() -> bool: 
+def check_long_condition() -> bool:
     """ Do something to make the condition True """
     global first_check_long, cross_up
     for symbol in watchlist:
@@ -44,8 +45,8 @@ def check_long_condition() -> bool:
         # Create dataframe
         df = pd.DataFrame(k_lines)
         # Rename columns
-        df.columns = k_line_columns
-        # Set the index for pandas_ta functionality
+        df.columns = K_LINE_COLUMNS
+        # Set the index for pandas_ta functionality. Not sure what requires this, just keep it.
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         # Get EMAs with pandas_ta
         df['Golden Cross Up'] = df.ta.ema(50, append=True) > df.ta.ema(200, append=True)
@@ -61,23 +62,27 @@ def check_long_condition() -> bool:
             print("50 EMA crossing 200 EMA UP!!")
             # Add the event to the strategy table
             try:
-                event_loop.run_until_complete(create_with_id('strategy', df.tail(1)['datetime'].dt.date, {'Golden Cross Up':df.tail(1)['Golden Cross Up'].bool()}))
-            except Exception:
+                event_loop.run_until_complete(create_all('strategy', {'Golden Cross Up':df.tail(1)['Golden Cross Up'].bool(), 'datetime':df.tail(1)['datetime']}))
+            except Exception as e:
                 # Already in DB
+                print(e)
                 pass
             return True
         else:
             return False
 
-def check_short_condition() -> bool: 
-    """ Do something to make the condition True """  
+def check_short_condition() -> bool:
+    """ Do something to make the condition True """
     global first_check_short, cross_down
     for symbol in watchlist:
         k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks. See below Example k_line data.
         df = pd.DataFrame(k_lines)
-        df.columns = k_line_columns
+        df.columns = K_LINE_COLUMNS
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         df['Golden Cross Down'] = df.ta.ema(50, append=True) < df.ta.ema(200, append=True)
+        print({'datetime':df.tail(1)['datetime'].to_json()})
+        data = {'Golden Cross Up':df.tail(1)['Golden Cross Down'].bool(), 'datetime':df.tail(1)['datetime'], 'timeframe':timeframe}
+        event_loop.run_until_complete(create_all('strategy', data))
         if first_check_short is True:
             cross_down = df.tail(1)['Golden Cross Down'].bool()
             first_check_short = False
@@ -91,7 +96,7 @@ def check_short_condition() -> bool:
             except Exception:
                 pass
             return True
-        else: 
+        else:
             return False
 
 if __name__ == '__main__':

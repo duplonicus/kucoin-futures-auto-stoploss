@@ -15,11 +15,12 @@ event_loop = asyncio.get_event_loop()
 async def create_all(table, data) -> dict:
     """Create a table and add data."""
     response = await client.create_all(table, data)
+    print(response)
     return response
 
 async def create_with_id(table, custom_id, data) -> dict:
     """ Create a record with a specified id.
-    This will raise an exception if the record already exists.  """    
+    This will raise an exception if the record already exists.  """
     response = await client.create_one(table, custom_id, data)
     return response
 
@@ -57,4 +58,4 @@ async def my_query(query) -> dict:
     return response
 
 if __name__ == "__main__":
-    event_loop.run_until_complete(select_all("symbol"))
+    event_loop.run_until_complete(create_with_id('strategy', 'time::now()', {'Golden Cross Up':'time::now()'}))
