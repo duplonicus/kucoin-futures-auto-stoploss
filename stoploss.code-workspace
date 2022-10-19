@@ -5,7 +5,7 @@
 		}
 	],
 	"settings": {
-		"powershell.cwd": "~\\dev\\repos\\kucoin stop loss helper",
+		"powershell.cwd": ".",
 		"task.allowAutomaticTasks": "on"
 	},
 	"tasks": {
@@ -40,7 +40,7 @@
 				"runOptions": { "runOn": "folderOpen" }
 			},
 			{
-				"label": "Trade event logger",
+				"label": "Trade Logger",
 				"type": "shell",
 				"command": "",
 				"windows": {

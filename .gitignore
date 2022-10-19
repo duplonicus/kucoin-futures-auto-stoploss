@@ -7,3 +7,4 @@ history.txt
 .pylintrc
 sandbox_test.py
 sandbox_stoploss.py
+stoploss.ps1

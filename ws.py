@@ -37,7 +37,7 @@ async def main():
             print(f'Trade Order:{response["data"]}')
             # Log trades to database
             event_loop.run_until_complete(await create_with_id("trades", response["data"]["tradeId"], response["data"]))
-            # This didn't work until I added await in front of it. Data is in database but threw an exception
+            # This didn't work until I added await in front of it. Data is in database but throws an exception
         else:
             print(f'{response["data"]}')
 
