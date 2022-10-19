@@ -21,9 +21,9 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 
 # Options
 timeframe = 1
-watchlist = ('FTMUSDTM', 'VRAUSDTM') # Add some symbols
 long = True # Enable longs
 short = True # Enable shorts
+watchlist = ('FTMUSDTM', 'VRAUSDTM')
 
 # Variables
 longs = {}
@@ -66,7 +66,7 @@ def check_long_condition() -> bool:
                 event_loop.run_until_complete(create_all('strategy', {'Golden Cross Up':df.tail(1)['Golden Cross Up'].bool(), 'datetime':df.tail(1)['datetime']}))
             except Exception as e:
                 # Already in DB
-                print(e)
+                #print(e)
                 pass
             return True
         else:
@@ -81,10 +81,9 @@ def check_short_condition() -> bool:
         df.columns = K_LINE_COLUMNS
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         df['Golden Cross Down'] = df.ta.ema(50, append=True) < df.ta.ema(200, append=True)
-        print({'datetime':df.tail(1)['datetime'].to_json()})
         d = datetime.now()
-        data = {'Golden Cross Up':df.tail(1)['Golden Cross Down'].bool(), "datetime":d, 'timeframe':timeframe}
-        event_loop.run_until_complete(create_all('strategy', data))
+        data = {'Golden Cross Up':df.tail(1)['Golden Cross Down'].bool(), 'time':'time::now()', 'timeframe':timeframe}
+        event_loop.run_until_complete(my_query('INSERT INTO strategy (time) VALUES "time::now()"'))
         if first_check_short is True:
             cross_down = df.tail(1)['Golden Cross Down'].bool()
             first_check_short = False
@@ -94,7 +93,7 @@ def check_short_condition() -> bool:
             cross_down = new_cross_down
             print("50 EMA crossing 200 EMA DOWN!!")
             try:
-                event_loop.run_until_complete(create_with_id('strategy', df.tail(1)['datetime'], {'Golden Cross Down':df.tail(1)['Golden Cross Down'].bool()}))
+                event_loop.run_until_complete(create_with_id('strategy', {'Golden Cross Down':df.tail(1)['Golden Cross Down'].bool()}))
             except Exception:
                 pass
             return True
