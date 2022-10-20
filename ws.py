@@ -49,8 +49,11 @@ async def main():
     #await ws_client.subscribe('/contract/position:ETHUSDTM')
 
     # Listen for trade data
-    await ws_client.subscribe('/contractMarket/tradeOrders')
-
+    try:
+        await ws_client.subscribe('/contractMarket/tradeOrders')
+    except RuntimeError as r:
+        print(r)
+        pass
     while True:
         await asyncio.sleep(60, loop=loop)
 
