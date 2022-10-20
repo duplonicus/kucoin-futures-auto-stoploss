@@ -104,18 +104,20 @@ if __name__ == '__main__':
     check_long_condition()
     check_short_condition()
 
-""" Example k_line data:
+"""
+Example k_line data:
     If neither the start time nor the end time is specified, the system will return the 200 pieces of data closest to the current time of the system.
     {
-        "code": "200000",
-        "data": [
-            [
-                1575331200000,//Time
-                7495.01,      //Entry price
-                8309.67,      //Highest price
-                7250,         //Lowest price
-                7463.55,      //Close price
-                0             //Trading volume
-            ]
+    "code": "200000",
+    "data": [
+        [
+            1575331200000,#Time
+            7495.01,      #Entry price
+            8309.67,      #Highest price
+            7250,         #Lowest price
+            7463.55,      #Close price
+            0             #Trading volume
         ]
-    } """
+    ]
+    }
+"""

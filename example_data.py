@@ -1,4 +1,4 @@
-""" Example data """
+""" Example data for 1 short position with manual stop and take-profit """
 
 # Positions: -------\
 [{
@@ -12,26 +12,22 @@
     'pageSize': 50,
     'totalNum': 4,
     'totalPage': 1,
-    'items': [{
+    'items': [
+        {
         # This is a stop manually entered from the Positions tab, we can tell the difference because 'timeInForce' == '' and 'clientOId' == None and 'reduceOnly' == False
         'id': '6350d1a3ebeed60001014626', 'symbol': 'ETHUSDTM', 'type': 'market', 'side': 'buy', 'price': None, 'size': 2, 'value': '0', 'dealValue': '0', 'dealSize': 0, 'stp': '', 'stop': 'up', 'stopPriceType': 'TP', 'stopTriggered': None, 'stopPrice': '1291.1', 'timeInForce': '', 'postOnly': False, 'hidden': False, 'iceberg': False, 'leverage': '1', 'forceHold': False, 'closeOrder': True, 'visibleSize': None, 'clientOid': None, 'remark': None, 'tags': None, 'isActive': True, 'cancelExist': False, 'createdAt': 1666240931000, 'updatedAt': 1666240931000, 'endAt': None, 'orderTime': None, 'settleCurrency': 'USDT', 'status': 'open', 'filledSize': 0, 'filledValue': '0', 'reduceOnly': False
-    }
-
-    ,
+        },
         # This is a stop manually entered from the Positions tab, we can tell the difference because 'timeInForce' == '' and 'clientOId' == None and 'reduceOnly' == False
         {
         'id': '6350d1a3ebeed60001014631', 'symbol': 'ETHUSDTM', 'type': 'market', 'side': 'buy', 'price': None, 'size': 2, 'value': '0', 'dealValue': '0', 'dealSize': 0, 'stp': '', 'stop': 'down', 'stopPriceType': 'TP', 'stopTriggered': None, 'stopPrice': '1270.2', 'timeInForce': '', 'postOnly': False, 'hidden': False, 'iceberg': False, 'leverage': '1', 'forceHold': False, 'closeOrder': True, 'visibleSize': None, 'clientOid': None, 'remark': None, 'tags': None, 'isActive': True, 'cancelExist': False, 'createdAt': 1666240931000, 'updatedAt': 1666240931000, 'endAt': None, 'orderTime': None, 'settleCurrency': 'USDT', 'status': 'open', 'filledSize': 0, 'filledValue': '0', 'reduceOnly': False
-    }
-
-    ,
+        },
         {
         'id': '6350d1872096610001457f2e', 'symbol': 'ETHUSDTM', 'type': 'market', 'side': 'buy', 'price': '0', 'size': 2, 'value': '0', 'dealValue': '0', 'dealSize': 0, 'stp': '', 'stop': 'up', 'stopPriceType': 'TP', 'stopTriggered': None, 'stopPrice': '1291.15', 'timeInForce': 'GTC', 'postOnly': False, 'hidden': False, 'iceberg': False, 'leverage': '1', 'forceHold': False, 'closeOrder': False, 'visibleSize': None, 'clientOid': '7f33a1a9503111edaa886245b5038bc7', 'remark': None, 'tags': None, 'isActive': True, 'cancelExist': False, 'createdAt': 1666240903000, 'updatedAt': 1666240903000, 'endAt': None, 'orderTime': None, 'settleCurrency': 'USDT', 'status': 'open', 'filledSize': 0, 'filledValue': '0', 'reduceOnly': True
-    }
-
-    ,
+        },
         {
         'id': '6350d17f7dcb7f000162b828', 'symbol': 'ETHUSDTM', 'type': 'market', 'side': 'buy', 'price': '0', 'size': 2, 'value': '0', 'dealValue': '0', 'dealSize': 0, 'stp': '', 'stop': 'down', 'stopPriceType': 'TP', 'stopTriggered': None, 'stopPrice': '1278.3604', 'timeInForce': 'GTC', 'postOnly': False, 'hidden': False, 'iceberg': False, 'leverage': '1', 'forceHold': False, 'closeOrder': False, 'visibleSize': None, 'clientOid': '7ab5f77f503111ed833f6245b5038bc7', 'remark': None, 'tags': None, 'isActive': True, 'cancelExist': False, 'createdAt': 1666240895000, 'updatedAt': 1666240895000, 'endAt': None, 'orderTime': None, 'settleCurrency': 'USDT', 'status': 'open', 'filledSize': 0, 'filledValue': '0', 'reduceOnly': True
-    }]
+        }
+    ]
 }
 
 # Symbols: -------\
