@@ -28,13 +28,15 @@ md_client = MarketData(key=api_key,
                 is_sandbox=False,
                 url='https://api-futures.kucoin.com')
 
-# TODO: Argument parser
+# TODO: [KFAS-1] Argument parser
 
 """ Options """
 # Number of seconds between each loop
 loop_wait = 3
 
 # Number of ticks away from liquidation price for stop price. Must be integer >= 1.
+# If too small, Kucoin's matching engine may have to skip order during high volitility,
+# i.e., light order book and big
 ticks_from_liq = 2
 
 # Enable take-profit orders at the profit_target_pcnt
@@ -52,15 +54,12 @@ start_trailing_pcnt = .10
 # The unrealised ROE percentage for the first trailing stop
 # Use a value lower than start_trailing_pcnt or the trade will be stopped out right away,
 # but higher than your realized loss percent due to fees or it will close at a loss
-# # TODO: Calculate what this should be based on initial leverage so that it is always enough to cover fees
+# # TODO: [KFAS-2] Calculate what this should be based on initial leverage so that it is always enough to cover fees
 # It would need to be > realized PnL * 2 to break even
 trailing_pcnt = .08
 
 # Increase in unrealized ROE percent required to bump trailing stop
 trailing_count_pcnt = .05
-
-# TODO: Some reason to keep trade opened maybe?
-#leading_profit = False
 
 # Set to True after installing SurrealDB: https://surrealdb.com/
 database = True
@@ -83,7 +82,7 @@ initialized = False
 
 """ Functions """
 def init() -> None:
-    """ Get data from surrealDB """
+    """ Get data from surrealDB and display script name"""
     global symbols_dict, initialized
     pyfiglet.print_figlet("Kucoin Futures Position Manager", 'alphabet', 'GREEN')
     print("\033[91m{}\033[00m" .format('By Duplonicus\n'))
@@ -180,7 +179,7 @@ def get_position_data() -> dict:
             symbol_data = symbols_dict[position["symbol"]]
             tick_size = float(symbol_data["tickSize"])
         unrealised_roe_pcnt = position["unrealisedRoePcnt"]
-        initial_leverage = round(position['realLeverage'] * (1 + position['unrealisedRoePcnt'])) # Example: TODO add example
+        initial_leverage = round(position['realLeverage'] * (1 + position['unrealisedRoePcnt'])) # TODO: [KFAS-3] add example
         # Build pos_data dictionary to make working with the data easier
         pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":tick_size, "amount":position["currentQty"], "mark_price":position["markPrice"], "initial_leverage":initial_leverage, "unrealised_roe_pcnt":unrealised_roe_pcnt }
     return pos_data
@@ -248,16 +247,16 @@ def get_new_trailing_price(direction: str, mark_price: float, initial_leverage: 
 
         Calculation
         -----------
-        1 +/- mark_price * ((trailing_pcnt * trailing_count) / leverage)
+        mark_price +/- mark_price * ((trailing_pcnt * trailing_count) / leverage)
 
         Example
         -------
         1 + (100 * (0.1 * 1 / 100)) = 100.1 """
-
+    # TODO: [KFAS-6] Fix new trailing price: it's returning 0.98 instead of near the price of ETH
     if direction == "long":
-        return round_to_tick_size(1 + mark_price * ((trailing_pcnt * trailing_count) / initial_leverage), tick_size)
+        return round_to_tick_size(mark_price + mark_price * ((trailing_pcnt * trailing_count) / initial_leverage), tick_size)
     elif direction == "short":
-        return round_to_tick_size(1 - mark_price * ((trailing_pcnt * trailing_count) / initial_leverage), tick_size) # This is correct now
+        return round_to_tick_size(mark_price - mark_price * ((trailing_pcnt * trailing_count) / initial_leverage), tick_size) # This is correct now??? maybe..
 
 def add_trailing(symbol, direction: str, amount: int, mark_price: float | int, initial_leverage: float, trailing_pcnt: float, tick_size: float, trailing_count: int) -> None :
     """ Submits strailing stop """
@@ -269,6 +268,8 @@ def add_trailing(symbol, direction: str, amount: int, mark_price: float | int, i
 def check_stops() -> None:
     """ Cancels stops if no matching positions.
         Cancels stops if position size or liquidation price changes then calls add_stops(). """
+
+    # TODO: [KFAS-4] If we have a trailing stop, do we really still want to close the position at a take-profit? I don't think so..
 
     global trailing_stops
 
@@ -300,7 +301,6 @@ def check_stops() -> None:
 
     # Case: Liquidation price changed
     # This should get called if the margin changes but the amount does not
-    # TODO: Fix issue where this gets called when starting with stops on the Positions tab
     if command != "stop_amount":
         for pos in pos_data.items():
                 if pos[1]['direction'] == 'long':
@@ -391,7 +391,6 @@ def check_stops() -> None:
 
         # Match: Unrealised ROE high enough to start trailing
         case 'start_trailing':
-
             for pos in pos_data.items():
                 if pos[1]['direction'] == 'long':
                     for item in stops["items"]:
@@ -435,26 +434,22 @@ def buy() -> None:
         # Add code for what to do if your buy condition is True
         td_client.create_limit_order(side='buy', symbol='', type='', price='', lever='', size='')
 
-
 def sell() -> None:
     if check_short_condition() is True:
         # Add code for what to do if your sell condition is True
         td_client.create_limit_order(side='sell', symbol='', type='', price='', lever='', size='')
 
-# Debugging - This will break the script if there are no positions. Comment out if so.
-try:
-    print(f"Positions: -------\\\n{positions}")
-    print(f"Stops: -------\\\n{stops}")
-    print(f"Symbols: -------\\\n{get_symbol_list()}")
-    print(f"Pos Data: -------\\\n{get_position_data()}")
-except:
-    print("You Fool!")
+# Debugging
+print(f"Positions: -------\\\n{get_positions()}")
+print(f"Stops: -------\\\n{get_stops()}")
+print(f"Symbols: -------\\\n{get_symbol_list()}")
+print(f"Pos Data: -------\\\n{get_position_data()}")
 
 def main():
     """ Happy Trading! """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
-        # TODO: Figure out which requests are too close together though it doesn't really matter because the script will finish what it wants to do after the timeout
+        # TODO: [KFAS-5] Figure out which requests are too close together though it doesn't really matter because the script will finish what it wants to do after the timeout. Or maybe it won't happen once everything is working
         try:
             if not initialized:
                 init()
