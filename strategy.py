@@ -20,6 +20,7 @@ api_passphrase = config['api']['passphrase']
 md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
 # Options
+database = True
 timeframe = 1
 long = True # Enable longs
 short = True # Enable shorts
@@ -63,7 +64,8 @@ def check_long_condition() -> bool:
             print("50 EMA crossing 200 EMA UP!!")
             # Add the event to the strategy table
             try:
-                event_loop.run_until_complete(create_all('strategy', {'Golden Cross Up':df.tail(1)['Golden Cross Up'].bool(), 'datetime':df.tail(1)['datetime']}))
+                if database:
+                    event_loop.run_until_complete(create_all('strategy', {'Golden Cross Up':df.tail(1)['Golden Cross Up'].bool(), 'datetime':df.tail(1)['datetime']}))
             except Exception as e:
                 # Already in DB
                 #print(e)
@@ -92,10 +94,11 @@ def check_short_condition() -> bool:
         if cross_down != new_cross_down:
             cross_down = new_cross_down
             print("50 EMA crossing 200 EMA DOWN!!")
-            try:
-                event_loop.run_until_complete(create_with_id('strategy', {'Golden Cross Down':df.tail(1)['Golden Cross Down'].bool()}))
-            except Exception:
-                pass
+            if database:
+                try:
+                    event_loop.run_until_complete(create_with_id('strategy', {'Golden Cross Down':df.tail(1)['Golden Cross Down'].bool()}))
+                except Exception:
+                    pass
             return True
         else:
             return False
