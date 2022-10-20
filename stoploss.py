@@ -88,7 +88,7 @@ def init() -> None:
     pyfiglet.print_figlet("Kucoin Futures Position Manager", 'alphabet', 'GREEN')
     print("\033[91m{}\033[00m" .format('By Duplonicus\n'))
     if database:
-        print("> Retreiving data from symbol table...")
+        print("> Connecting to SurrealDB...")
         try:
             table = event_loop.run_until_complete(select_all("symbol"))
         except Exception as e:
@@ -96,7 +96,7 @@ def init() -> None:
             print(e)
             print("> Install SurrealDB!")
             return
-        if table == []: # If empty or doesn't exist
+        if table == []:
             initialized = True
             return
         else:
@@ -365,6 +365,7 @@ def check_stops() -> None:
             add_stops()
             if item["symbol"] in trailing_stops:
                 del trailing_stops[item["symbol"]]
+                del pos_data[item["symbol"]]
             return
 
         # Match: Position amount changed
