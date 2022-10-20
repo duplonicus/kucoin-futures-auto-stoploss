@@ -151,18 +151,18 @@ def get_position_data() -> dict:
         direction = "long" if position["posCost"] > 0 else "short"
         if direction == "short":
             for item in stops["items"]:
-                if item["symbol"] == position["symbol"] and item["stop"] == "up":
+                if item["symbol"] == position["symbol"] and item["stop"] == "up" and item['timeInForce'] != '':
                     stop_loss = True
                     stop_price = item["stopPrice"]
-                if item["symbol"] == position["symbol"] and item["stop"] == "down":
+                if item["symbol"] == position["symbol"] and item["stop"] == "down" and item['timeInForce'] != '':
                     take_profit = True
                     profit_price = item["stopPrice"]
         elif direction == "long":
             for item in stops["items"]:
-                if item["symbol"] == position["symbol"] and item["stop"] == "down":
+                if item["symbol"] == position["symbol"] and item["stop"] == "down" and item['timeInForce'] != '':
                     stop_loss = True
                     stop_price = item["stopPrice"]
-                if item["symbol"] == position["symbol"] and item["stop"] == "up":
+                if item["symbol"] == position["symbol"] and item["stop"] == "up" and item['timeInForce'] != '':
                     take_profit = True
                     profit_price = item["stopPrice"]
         # Get and store symbol contract details
