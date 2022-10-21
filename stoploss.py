@@ -62,7 +62,7 @@ trailing_pcnt = .15
 trailing_count_pcnt = .05
 
 # Set to True after installing SurrealDB: https://surrealdb.com/
-database = True
+database = False
 if database:
     from surreal_db import *
 
@@ -167,7 +167,7 @@ def get_position_data() -> dict:
         # Get and store symbol contract details
         if position["symbol"] not in symbols_dict:
             symbol_data = md_client.get_contract_detail(position["symbol"])
-            tick_size = float(symbol_data["tickSize"])
+            tick_size = symbol_data['tickSize']
             symbols_dict[position["symbol"]] = symbol_data
             if database:
                 try:
@@ -176,26 +176,41 @@ def get_position_data() -> dict:
                 except Exception as e:
                     print(e)
         else:
+            # If SurrealDB innititalized
+            #print(symbols_dict)
             symbol_data = symbols_dict[position["symbol"]]
-            tick_size = float(symbol_data["tickSize"])
+            tick_size = symbol_data["tickSize"]
+        """
+        >>> print(0.00001357)
+        1.357e-05
+        >>> print(format(0.00001357, 'f'))
+        0.000014
+        >>> print(format(0.00001357, '.8f'))
+        0.00001357
+         """
         unrealised_roe_pcnt = position["unrealisedRoePcnt"]
-        initial_leverage = round(position['realLeverage'] * (1 + position['unrealisedRoePcnt'])) # TODO: [KFAS-3] add example
+        initial_leverage = round(position['realLeverage'] * (1 + position['unrealisedRoePcnt'])) # = (realLeverage * (1 + unrealisedRoePcnt))
         # Build pos_data dictionary to make working with the data easier
-        pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price, "take_profit":take_profit, "profit_price":profit_price, "tick_size":tick_size, "amount":position["currentQty"], "mark_price":position["markPrice"], "initial_leverage":initial_leverage, "unrealised_roe_pcnt":unrealised_roe_pcnt }
+        pos_data[position["symbol"]] = {"direction":direction, "liq_price":position["liquidationPrice"], "stop_loss":stop_loss, "stop_price":stop_price,
+                                        "take_profit":take_profit, "profit_price":profit_price, "tick_size":tick_size, "amount":position["currentQty"],
+                                        "mark_price":position["markPrice"], "initial_leverage":initial_leverage, "unrealised_roe_pcnt":unrealised_roe_pcnt }
     return pos_data
 
-def round_to_tick_size(number: float | int, tick_size: float) -> float | int:
+def round_to_tick_size(number: float | int,
+                        tick_size: float) -> float | int:
     """ Makes sure Python doesn't return a super long float for the stop order price. """
-    # Convert to decimal float if tick_size was returned in scientific notation (which python considers a float but can't be used in orders)
-    tick_size_float = "{:f}".format(tick_size)
-    # Conver to string
-    tick_size_str = str(tick_size_float)
-    # Remove trailing 0s
-    tick_size_no_zeros = tick_size_str.rstrip("0")
-    num_decimals = len(str(tick_size_no_zeros).split('.')[1])
+    tick_size = format(tick_size, 'f') # format as standard notation if scientific, this converts to string too
+    # Remove trailing 0s, Kucoin ins't happy if the order amount is 1.050000, not sure if the number of 0s matters
+    tick_size = tick_size.rstrip("0")
+    num_decimals = len(tick_size.split('.')[1])
+    tick_size = float(tick_size)
     return round(round(number / tick_size) * tick_size, num_decimals)
 
-def get_new_profit_price(direction: str, mark_price: float | int, initial_leverage: int, profit_target: float | int, tick_size: float | int) -> float | int:
+def get_new_profit_price(direction: str,
+                        mark_price: float | int,
+                        initial_leverage: int,
+                        profit_target: float | int,
+                        tick_size: float | int) -> float | int:
     """ Returns a new take profit price.
     Calculation: mark_price + (mark_price * (profit_target / initial_leverage))
     Example: 100 + (100 * (1 / 100)) = 101 """
@@ -222,7 +237,9 @@ def add_take_profits() -> None:
                 elif pos_data[pos]["direction"] == "short":
                     td_client.create_limit_order(reduceOnly=True, type='limit', side='buy', symbol=pos, stop='down', stopPrice=profit_price, stopPriceType='TP', price=profit_price, lever=0, size=amount)
 
-def get_new_stop_price(direction: str, liq_price: float, tick_size: str) -> float:
+def get_new_stop_price(direction: str,
+                        liq_price: float,
+                        tick_size: str) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
     if direction == "long":
         return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
@@ -246,7 +263,12 @@ def add_stops() -> None:
             elif pos_data[pos]["direction"] == "short":
                 td_client.create_limit_order(closeOrder=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
-def get_new_trailing_price(direction: str, mark_price: float, initial_leverage: int | float, trailing_pcnt: float, tick_size: float, trailing_count: int) -> float:
+def get_new_trailing_price(direction: str,
+                            mark_price: float,
+                            initial_leverage: int | float,
+                            trailing_pcnt: float,
+                            tick_size: float,
+                            trailing_count: int) -> float:
     """ Returns a new trailing stop price.
 
         Calculation
@@ -256,13 +278,19 @@ def get_new_trailing_price(direction: str, mark_price: float, initial_leverage: 
         Example
         -------
         1 + (100 * (0.1 * 1 / 100)) = 100.1 """
-    # TODO: [KFAS-6] Fix new trailing price: it's returning 0.98 instead of near the price of ETH
     if direction == "long":
         return round_to_tick_size(mark_price + mark_price * ((trailing_pcnt * trailing_count) / initial_leverage), tick_size)
     elif direction == "short":
         return round_to_tick_size(mark_price - mark_price * ((trailing_pcnt * trailing_count) / initial_leverage), tick_size) # This is correct now??? maybe..
 
-def add_trailing(symbol, direction: str, amount: int, mark_price: float | int, initial_leverage: float, trailing_pcnt: float, tick_size: float, trailing_count: int) -> None :
+def add_trailing(symbol: str,
+                direction: str,
+                amount: int,
+                mark_price: float | int,
+                initial_leverage: int,
+                trailing_pcnt: float,
+                tick_size: float,
+                trailing_count: int) -> None :
     """ Submits strailing stop """
     stop_price = get_new_trailing_price(direction, initial_leverage, mark_price, trailing_pcnt, tick_size, trailing_count)
     if amount < 0:
@@ -329,7 +357,7 @@ def check_stops() -> None:
             for item in stops["items"]:
                 # TODO: [KFAS-9] stop this from printing twice
                 if item["symbol"] == pos[0] and item["stop"] == "down" and float(pos[1]["unrealised_roe_pcnt"]) > start_trailing_pcnt:
-                    print(trailing_stops)
+                    #print(trailing_stops)
                     print(f'> {pos[1]["initial_leverage"]} X {item["symbol"]} {pos[1]["direction"]} position @ {round(pos[1]["unrealised_roe_pcnt"] * 100, 2)}% profit ready for TRAILING STOP!')
                     command = "start_trailing"
         elif pos[1]['direction'] == 'short'and pos[0] not in trailing_stops:
@@ -457,7 +485,7 @@ def main():
     """ Happy Trading! """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
-        # TODO: [KFAS-5] Figure out which requests are too close together though it doesn't really matter because the script will finish what it wants to do after the timeout. Or maybe it won't happen once everything is working
+        # TODO: [KFAS-5] Figure out which requests are too close together though it doesn't really matter yet.. because the script will finish what it wants to do after the timeout. Or maybe it won't happen once everything is working
         try:
             if not initialized:
                 init()
@@ -475,7 +503,7 @@ def main():
 
             # Display active positions
             if positions:
-                print('> Active positions:', ', '.join(str(symbol) for symbol in symbols), end='\r')
+                print('> Active positions:', ', '.join(str(pos) for pos in pos_data), ''.join(str(pos['direction']) for pos in pos_data), end='\r')
 
             time.sleep(loop_wait)
 

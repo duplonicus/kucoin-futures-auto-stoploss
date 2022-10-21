@@ -50,6 +50,7 @@ async def main():
 
     # Listen for trade data
     try:
+        # TODO: [KFAS-11] Figure out was causes the runtime error
         await ws_client.subscribe('/contractMarket/tradeOrders')
     except RuntimeError as r:
         print(r)
