@@ -177,17 +177,8 @@ def get_position_data() -> dict:
                     print(e)
         else:
             # If SurrealDB innititalized
-            #print(symbols_dict)
             symbol_data = symbols_dict[position["symbol"]]
             tick_size = symbol_data["tickSize"]
-        """
-        >>> print(0.00001357)
-        1.357e-05
-        >>> print(format(0.00001357, 'f'))
-        0.000014
-        >>> print(format(0.00001357, '.8f'))
-        0.00001357
-         """
         unrealised_roe_pcnt = position["unrealisedRoePcnt"]
         initial_leverage = round(position['realLeverage'] * (1 + position['unrealisedRoePcnt'])) # = (realLeverage * (1 + unrealisedRoePcnt))
         # Build pos_data dictionary to make working with the data easier
@@ -503,13 +494,16 @@ def main():
 
             # Display active positions
             if positions:
-                print('> Active positions:', ', '.join(str(pos) for pos in pos_data), ''.join(str(pos['direction']) for pos in pos_data), end='\r')
+                # This has to be a one-liner so it can be overwritten properly
+                # There must be a better way to do this
+                print('> Active positions:', ' '.join(str(pos['initial_leverage']).upper() for pos in pos_data.values()), 'X', ' '.join(str(pos) for pos in pos_data), ' '.join(str(pos['direction']).upper() for pos in pos_data.values()),
+                        ''.join(str(pos['amount']) for pos in pos_data.values()), '@', ''.join(str(pos['unrealised_roe_pcnt']) for pos in pos_data.values()), '% ', end='\r')
 
             time.sleep(loop_wait)
 
         except KeyboardInterrupt:
-            quote = requests.get("https://zenquotes.io/api/random")
-            print(quote.json()[0]["q"], "Nice trades!!! See you tomorrow... :)")
+            quote = requests.get("https://zenquotes.io/api/random").json()[0]["q"]
+            print(quote, "Nice trades!!! See you tomorrow... :)")
             quit()
 
         """ except Exception as e:
