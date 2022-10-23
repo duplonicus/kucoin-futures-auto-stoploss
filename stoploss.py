@@ -529,9 +529,12 @@ def main():
             if positions:
                 # This has to be a one-liner so it can be overwritten properly
                 # TODO: [KFAS-17] Figure out a better way to print all the data to the console
-                print(f'> [{datetime.datetime.now()}] Active positions:', ' '.join(str(pos['initial_leverage']).upper() for pos in pos_data.values()), 'X', ' '.join(str(pos) for pos in pos_data),
-                    ' '.join(str(pos['direction']).upper() for pos in pos_data.values()), ''.join(str(pos['amount']) for pos in pos_data.values()),
-                    '@', ''.join(str(round(pos['unrealised_roe_pcnt'] * 100, 2)) for pos in pos_data.values()), '% ', end='\r')
+                # I broke this when there is multiple positions
+                """ print(f'> [{datetime.datetime.now()}] Active positions:', ' '.join(str(pos['initial_leverage']).upper() for pos in pos_data.values()), 'X', ' '.join(str(pos) for pos in pos_data),
+                    ' '.join(str(pos['direction']).upper() for pos in pos_data.values()), ' '.join(str(pos['mark_price']) for pos in pos_data.values()), '$',
+                    ''.join(str(pos['amount']) for pos in pos_data.values()), '@', ''.join(str(round(pos['unrealised_roe_pcnt'] * 100, 2)) for pos in pos_data.values()), '% ', end='\r')
+                """
+                print(f'> [{datetime.datetime.now()}] Active positions: {symbols}', end='\r')
 
             time.sleep(loop_wait)
 
