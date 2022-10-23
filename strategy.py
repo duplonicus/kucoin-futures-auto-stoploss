@@ -65,7 +65,7 @@ def check_long_condition() -> bool:
             # Add the event to the strategy table
             try:
                 if database:
-                    event_loop.run_until_complete(create_all('strategy', {'Golden Cross Up':df.tail(1)['Golden Cross Up'].bool(), 'datetime':df.tail(1)['datetime']}))
+                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Up', 'time':datetime.now()}))
             except Exception as e:
                 # Already in DB
                 #print(e)
@@ -96,7 +96,7 @@ def check_short_condition() -> bool:
             print("50 EMA crossing 200 EMA DOWN!!")
             if database:
                 try:
-                    event_loop.run_until_complete(create_with_id('strategy', {'Golden Cross Down':df.tail(1)['Golden Cross Down'].bool()}))
+                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Down', 'time':datetime.now()}))
                 except Exception:
                     pass
             return True

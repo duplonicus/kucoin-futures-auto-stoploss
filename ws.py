@@ -16,6 +16,9 @@ api_key = config['api']['key']
 api_secret = config['api']['secret']
 api_passphrase = config['api']['passphrase']
 
+# Clear session table
+event_loop.run_until_complete(delete_all('session'))
+
 async def main():
 
     async def callback(response):
@@ -37,6 +40,9 @@ async def main():
             print(f'Trade Order:{response["data"]}')
             # Log trades to database
             event_loop.run_until_complete(await create_with_id("trades", response["data"]["tradeId"], response["data"]))
+            event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
+            # Here I can leverage SurrealDB to get the session PnL
+
             # This didn't work until I added await in front of it. Data is in database but throws an exception
         else:
             print(f'{response["data"]}')
