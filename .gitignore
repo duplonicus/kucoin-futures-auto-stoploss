@@ -11,3 +11,8 @@ stoploss.ps1
 KuCoin_logo.png
 backtrader/
 strategy_test.py
+backtest.ipynb
+samples/
+datas/
+kucoin-cli/
+kucoincli/
