@@ -466,12 +466,12 @@ def check_stops() -> None:
                     for item in stops["items"]:
                         if item['symbol'] == pos[0] and item["stop"] == "down":
                             #count = trailing_stops[item['symbol']]['count']
-                            bump_trailing(item['symbol'], pos[1]['direction'], item['size'], pos[1]['entry_price'], pos[1]['initial_leverage'], trailing_pcnt, pos[1]['tick_size'], count)
+                            bump_trailing(item['symbol'], pos[1]['direction'], item['size'], pos[1]['entry_price'], pos[1]['initial_leverage'], trailing_pcnt, pos[1]['tick_size'], trailing_stops[item['symbol']]['count'])
                             trailing_stops[item["symbol"]] = {"symbol":item["symbol"], "count":trailing_stops[item['symbol']]['count'] + 1}
                 elif pos[1]['direction'] == 'short':
                     for item in stops["items"]:
                         if item['symbol'] == pos[0] and item["stop"] == "up":
-                            bump_trailing(item['symbol'], pos[1]['direction'], item['size'], pos[1]['entry_price'], pos[1]['initial_leverage'], trailing_pcnt, pos[1]['tick_size'], count)
+                            bump_trailing(item['symbol'], pos[1]['direction'], item['size'], pos[1]['entry_price'], pos[1]['initial_leverage'], trailing_pcnt, pos[1]['tick_size'], trailing_stops[item['symbol']]['count'])
                             trailing_stops[item["symbol"]] = {"symbol":item["symbol"], "count":trailing_stops[item['symbol']]['count'] + 1}
             return
 
@@ -538,11 +538,14 @@ def main():
                 # This has to be a one-liner so it can be overwritten properly
                 # TODO: [KFAS-17] Figure out a better way to print all the data to the console
                 # This doesn't work when there are multiple positions
-                """ print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Active positions:', ' '.join(str(pos['initial_leverage']).upper() for pos in pos_data.values()), 'X', ' '.join(str(pos) for pos in pos_data),
-                    ' '.join(str(pos['direction']).upper() for pos in pos_data.values()), ' '.join(str(pos['mark_price']) for pos in pos_data.values()), '$',
-                    ''.join(str(pos['amount']) for pos in pos_data.values()), '@', ''.join(str(round(pos['unrealised_roe_pcnt'] * 100, 2)) for pos in pos_data.values()), '% ', end='\r')
-                """
-                print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Active positions: {symbols}', end='\r')
+                if len(symbols) == 1:
+                    print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Active positions:',
+                        ''.join(str(pos['initial_leverage']).upper() for pos in pos_data.values()), 'X', ' '.join(str(pos) for pos in pos_data),
+                        ''.join(str(pos['direction']).upper() for pos in pos_data.values()), ' '.join(str(pos['mark_price']) for pos in pos_data.values()), '$',
+                        ''.join(str(pos['amount']) for pos in pos_data.values()), '@', ''.join(str(round(pos['unrealised_roe_pcnt'] * 100, 2)) for pos in pos_data.values()),
+                        '% ', end='\r')
+                else:
+                    print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Active positions: {symbols}', end='\r')
 
             time.sleep(loop_wait)
 
