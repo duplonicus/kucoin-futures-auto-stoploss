@@ -5,8 +5,6 @@ import pandas as pd
 import pandas_ta as ta
 from surreal_db import *
 
-""" Example strategy for Golden Cross (50 EMA crossing 200 EMA) on 1 minute timeframe """
-
 # Config parser for API connection info
 config = configparser.ConfigParser()
 config.read("secret.ini")
@@ -19,9 +17,11 @@ api_passphrase = config['api']['passphrase']
 # Kucoin REST API Wrapper Client Objects
 md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
+""" Example strategy for Golden Cross (50 EMA crossing 200 EMA) on 1 minute timeframe """
+
 # Options
 database = True
-timeframe = 1
+timeframe = 15
 long = True # Enable longs
 short = True # Enable shorts
 watchlist = ('FTMUSDTM', 'VRAUSDTM')
@@ -65,7 +65,7 @@ def check_long_condition() -> bool:
             # Add the event to the strategy table
             try:
                 if database:
-                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Up', 'time':datetime.now()}))
+                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Up', 'time':datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S"), 'timeframe':timeframe}))
             except Exception as e:
                 # Already in DB
                 #print(e)
@@ -83,9 +83,6 @@ def check_short_condition() -> bool:
         df.columns = K_LINE_COLUMNS
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         df['Golden Cross Down'] = df.ta.ema(50, append=True) < df.ta.ema(200, append=True)
-        d = datetime.now()
-        data = {'Golden Cross Up':df.tail(1)['Golden Cross Down'].bool(), 'time':'time::now()', 'timeframe':timeframe}
-        event_loop.run_until_complete(my_query('INSERT INTO strategy (time) VALUES "time::now()"'))
         if first_check_short is True:
             cross_down = df.tail(1)['Golden Cross Down'].bool()
             first_check_short = False
@@ -96,7 +93,7 @@ def check_short_condition() -> bool:
             print("50 EMA crossing 200 EMA DOWN!!")
             if database:
                 try:
-                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Down', 'time':datetime.now()}))
+                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Down', 'time':datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S"), 'timeframe':timeframe}))
                 except Exception:
                     pass
             return True
