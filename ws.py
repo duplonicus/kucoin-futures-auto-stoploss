@@ -39,7 +39,7 @@ async def main():
         elif response['topic'] == '/contractMarket/tradeOrders':
             print(f'Trade Order:{response["data"]}')
             # Log trades to database
-            event_loop.run_until_complete(await create_with_id("trades", response["data"]["tradeId"], response["data"]))
+            event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
             event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
             # Here I can leverage SurrealDB to get the session PnL
 
