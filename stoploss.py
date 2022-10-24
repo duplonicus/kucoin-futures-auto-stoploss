@@ -46,15 +46,13 @@ ticks_from_liq = 2
 take_profit = True
 
 # Unrealized ROE percent target for take-profit order
-profit_target_pcnt = 0.4
+profit_target_pcnt = 0.25
 
 # Enable trailing stoplosses, disable take profits if trailing
 trailing = True
-if trailing:
-    take_profit = False
 
 # Unrealized ROE percent to begin trailing
-start_trailing_pcnt = .15
+start_trailing_pcnt = .10
 
 # The unrealised ROE percentage for the first trailing stop
 # Use a value lower than start_trailing_pcnt or the trade will be stopped out right away,
@@ -73,7 +71,7 @@ if database:
     from surreal_db import *
 
 # Set to true after defining a strategy and setting up SurrealDB
-strategy = False
+strategy = True
 if strategy:
     from strategy import *
 
@@ -223,7 +221,7 @@ def get_new_profit_price(direction: str,
 
 def add_take_profits() -> None:
     """ Submits take-profit orders if not present and take_profit is True and trailing stops are disabled. """
-    if take_profit and not trailing:
+    if take_profit:
         for pos in pos_data:
             if pos_data[pos]["take_profit"] is False and pos not in trailing_stops:
                 profit_price = get_new_profit_price(pos_data[pos]["direction"], pos_data[pos]["mark_price"], pos_data[pos]["initial_leverage"], profit_target_pcnt, pos_data[pos]["tick_size"])
@@ -310,8 +308,11 @@ def add_trailing(symbol: str,
     print(f'stop price: {stop_price}')
     if amount < 0:
         amount = amount * -1 # Make sure amount is a positive number as required by Kucoin
-
-    td_client.create_limit_order(closeOrder=True, type='market', side='sell', symbol=symbol, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
+    # You dumbass, maybe check if it's short too?
+    if direction == "long":
+        td_client.create_limit_order(closeOrder=True, type='market', side='sell', symbol=symbol, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
+    elif direction == "short":
+        td_client.create_limit_order(closeOrder=True, type='market', side='sell', symbol=symbol, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
 
 def check_stops() -> None:
     """ Check stops to see if they need to be canceled or resubmitted. """
@@ -348,14 +349,14 @@ def check_stops() -> None:
     # This should get called if the margin changes but the amount does not, i.e., add margin, change direction with same size
     if command != "stop_amount":
         for pos in pos_data.items():
-            if pos[1]['direction'] == 'long':
+            if pos[1]['direction'] == 'long' and pos[0] not in trailing_stops:
                 for item in stops["items"]:
                     if item['symbol'] == pos[0] and item["stop"] == "down":
                         new_stop_price = get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"])
                         if item["symbol"] == pos[0] and float(item["stopPrice"]) != new_stop_price:
                             print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Liquidation price changed for {pos[1]["initial_leverage"]} X {item["symbol"]}! Resubmitting stop {item["stop"].upper()} order...')
                             command = "liquidation_price"
-            elif pos[1]['direction'] == 'short':
+            elif pos[1]['direction'] == 'short' and pos[0] not in trailing_stops:
                 for item in stops["items"]:
                     if item['symbol'] == pos[0] and item["stop"] == "up":
                         new_stop_price = get_new_stop_price(pos[1]["direction"], pos[1]["liq_price"], pos[1]["tick_size"])
@@ -492,8 +493,10 @@ def bump_trailing(symbol: str,
     stop_price = get_new_trailing_price(direction, entry_price, initial_leverage, trailing_pcnt, tick_size, trailing_count, pnl)
     if amount < 0:
         amount = amount * -1 # Make sure amount is a positive number as required by Kucoin
-    td_client.create_limit_order(closeOrder=True, type='market', side='sell', symbol=symbol, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # 'size' and 'lever' can be 0 because 'stop' has a value. closeOrder=True ensures a position can only be closed. 'TP' means last traded price
-
+    if direction == "long":
+        td_client.create_limit_order(closeOrder=True, type='market', side='sell', symbol=symbol, stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # 'size' and 'lever' can be 0 because 'stop' has a value. closeOrder=True ensures a position can only be closed. 'TP' means last traded price
+    elif direction == "short":
+        td_client.create_limit_order(closeOrder=True, type='market', side='sell', symbol=symbol, stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=amount) # 'size' and 'lever' can be 0 because 'stop' has a value. closeOrder=True ensures a position can only be closed. 'TP' means last traded price
 
 def buy() -> None:
     if check_long_condition() is True:
@@ -506,10 +509,10 @@ def sell() -> None:
         td_client.create_limit_order(side='sell', symbol='', type='', price='', lever='', size='')
 
 # Debugging
-print(f"Positions: -------\\\n{get_positions()}")
+""" print(f"Positions: -------\\\n{get_positions()}")
 print(f"Stops: -------\\\n{get_stops()}")
 print(f"Symbols: -------\\\n{get_symbol_list()}")
-print(f"Pos Data: -------\\\n{get_position_data()}")
+print(f"Pos Data: -------\\\n{get_position_data()}") """
 
 def main():
     """ Happy Trading! """
@@ -524,7 +527,7 @@ def main():
             get_stops()
             get_symbol_list()
             get_position_data()
-            if take_profit and not trailing:
+            if take_profit:
                 add_take_profits()
             check_stops()
             add_stops()
@@ -552,7 +555,7 @@ def main():
         except KeyboardInterrupt:
             # TODO: [KFAS-18] Don't say 'nice trades' if the PnL for the session is negative
             quote = requests.get("https://zenquotes.io/api/random").json()[0]["q"]
-            print(quote, "Nice trades!!! See you tomorrow... :)")
+            print('\n', quote, "Nice trades!!! See you tomorrow... :)")
             quit()
 
         """ except Exception as e:
