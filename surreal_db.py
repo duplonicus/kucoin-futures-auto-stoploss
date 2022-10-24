@@ -57,5 +57,13 @@ async def my_query(query) -> dict:
     response = await client.execute(query)
     return response
 
+# TODO: [KFAS-24] session pnl
+def session_pnl() -> float:
+    session = event_loop.run_until_complete(select_all('session'))
+    for trade in session:
+        # something with the trade ids
+        return
+
+
 if __name__ == "__main__":
     event_loop.run_until_complete(create_with_id('strategy', 'time::now()', {'Golden Cross Up':'time::now()'}))
