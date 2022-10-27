@@ -128,8 +128,12 @@ def get_positions() -> dict:
 def get_stops() -> dict:
     """ Returns a dictionary of active stop orders. """
     global stops
-    stops = td_client.get_open_stop_order()
-    return stops
+    if stops != {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}:
+        stops = td_client.get_open_stop_order()
+        return stops
+    else:
+        stops = None
+        return None
 
 def get_symbol_list() -> list:
     """ Returns a list of symbols from positions. """
@@ -176,7 +180,7 @@ def check_far_stops():
                     if stop_price != new_stop_price:
                         print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting FAR STOP order for {pos["symbol"]} {initial_leverage} X {direction} position: {amount} contracts @ {stop_price}')
 
-
+# Check if unrealised PnL is
 
 # Add stops at ticks_from_liq
 def add_far_stops() -> None:
@@ -217,6 +221,7 @@ def add_far_stops() -> None:
                     profit_price = item["stopPrice"]
         elif direction == "short":
             for item in stops["items"]:
+                # stoploss for short on pos tab
                 if item["symbol"] == pos["symbol"] and item["stop"] == "up" and item['timeInForce'] != '':
                     stop_loss = True
                     stop_price = item["stopPrice"]
@@ -226,10 +231,13 @@ def add_far_stops() -> None:
                 if item["symbol"] == pos["symbol"] and item["stop"] == "down" and item['timeInForce'] != '':
                     take_profit = True
                     profit_price = item["stopPrice"]
+                else:
+                    print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting FAR STOP order for {pos["symbol"]} {initial_leverage} X {direction} position: {amount} contracts @ {stop_price}')
+                    td_client.create_limit_order(closeOrder=True, type='market', side='buy', symbol=pos, stop='up', stopPrice=new_stop_price, stopPriceType='TP', price=0, lever=0, size=amount)
 
 
-add_far_stops()
-exit()
+""" add_far_stops()
+exit() """
 
 # Add take profit if not in profit
 
@@ -622,11 +630,30 @@ def sell() -> None:
         # Add code for what to do if your sell condition is True
         td_client.create_limit_order(side='sell', symbol='', type='', price='', lever='', size='')
 
+def cancel_stops_without_pos() -> None:
+    for item in stops["items"]:
+            if item["symbol"] not in symbols:
+                print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] No position for {item["symbol"]}! CANCELLING STOP orders...')
+                td_client.cancel_all_stop_order(item["symbol"])
+
+def trail():
+    return
+
+def check_pnl():
+    for pos in positions:
+        if pos['unrealisedPnl'] > start_trailing_pcnt:
+            print('pnl')
+            trail()
+            return pos['unrealisedPnl']
+        else:
+            return False
+
+
 # Debugging
-""" print(f"Positions: -------\\\n{get_positions()}")
+print(f"Positions: -------\\\n{get_positions()}")
 print(f"Stops: -------\\\n{get_stops()}")
 print(f"Symbols: -------\\\n{get_symbol_list()}")
-print(f"Pos Data: -------\\\n{get_position_data()}") """
+print(f"Pos Data: -------\\\n{get_position_data()}")
 
 def main():
     """ Happy Trading! """
@@ -640,11 +667,12 @@ def main():
 
             get_positions()
             get_stops()
-
             get_symbol_list()
-            get_position_data()
+            cancel_stops_without_pos()
 
-            check_stops()
+            #get_position_data()
+
+            #check_stops()
 
             """ if take_profit:
                 add_take_profits()
