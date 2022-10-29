@@ -37,10 +37,7 @@ md_client = MarketData(key=api_key,
 # Number of seconds between each loop
 loop_wait = 1.5
 
-# Number of ticks away from liquidation price for stop price. Must be integer >= 1.
-# If too close, Kucoin's matching engine may have to skip order during high volitility
-# Also depends on what is the trigger: bid, ask, mid, last - This script uses last currently
-# TODO: [KFAS-15] Add percentage from mark price option
+# Number of ticks away from liquidation price for stoploss price. Must be integer >= 1.
 ticks_from_liq = 2
 
 # Enable take-profit orders at the profit_target_pcnt
@@ -49,7 +46,7 @@ take_profit = True
 # Unrealized ROE percent target for take-profit order
 profit_target_pcnt = 0.30
 
-# Enable trailing stoplosses, disable take profits if trailing
+# Enable trailing stoplosses
 trailing = True
 
 # Unrealized ROE percent to begin trailing
@@ -75,7 +72,7 @@ if database:
     from surreal_db import *
 
 # Set to true after defining a strategy and setting up SurrealDB
-strategy = False
+strategy = True
 if strategy:
     from strategy import *
 
@@ -83,14 +80,10 @@ if strategy:
 positions = td_client.get_all_position()
 stops = td_client.get_open_stop_order()
 symbols = []
-#pos_data = {} # old
 symbols_dict = {}
-# TODO: Remove trailing stops, keeping track of the count is not good because if you start the script in profit, it will need to go through each step
-#trailing_stops = {} # old
 initialized = False
 
 """ Functions """
-
 def init() -> None:
     """ Get data from surrealDB and display script name. """
     global symbols_dict, initialized
@@ -139,10 +132,9 @@ def get_stops() -> dict:
 
 def get_symbol_list() -> list:
     """ Returns a list of symbols from positions. """
-    global symbols, pos_data
+    global symbols
     symbols = []
     if not positions:
-        pos_data.clear()
         return symbols
     for i, position in enumerate(positions): # Have to enumerate because it's a list?
         symbols.append(positions[i]["symbol"])
@@ -197,21 +189,21 @@ def get_tick_size(pos: dict) -> str:
     return tick_size
 
 def get_trailing_stop_price(pos: dict, tick_size: str, lever: int):
-    """ Should return a trailing stop price in increments of the trailing_bump_pcnt percent. """
-    # Get remainder and subract it from the unrealised PnL
-    remainder = np.remainder(pos['unrealisedRoePcnt'] * 1e2, trailing_bump_pcnt) * 1e-2 # move decimal over 2 places to the right to make math work then move it back
+    """ Returns a trailing stop price. """
+    unrealisedRoePcnt = pos['unrealisedRoePcnt']
+    # Get remainder and subract it from the unrealised ROE
+    remainder = np.remainder(unrealisedRoePcnt, trailing_bump_pcnt)
+    unrealisedRoePcnt = unrealisedRoePcnt - remainder
     print('remainder:', remainder)
     print('entry:', pos['avgEntryPrice'])
-    if remainder != 0.0:
-        unrealisedPnlPcnt = (pos['unrealisedRoePcnt'] * 1e2 - remainder * 1e2) * 1e-2 # move decimal over 2 places to the right to make math work then move it back
-        print('unrealisedRoePcnt:', unrealisedPnlPcnt)
-    unrealisedPnlPcnt = round_to_tick_size(unrealisedPnlPcnt, tick_size)
+
+    print('unrealisedRoePcnt:', unrealisedRoePcnt)
     if pos['currentQty'] > 0: # Long
-        price = pos['avgEntryPrice'] + (pos['avgEntryPrice'] * ((unrealisedPnlPcnt - trailing_pcnt) / lever))
+        price = pos['avgEntryPrice'] + (pos['avgEntryPrice'] * ((unrealisedRoePcnt - trailing_pcnt) / lever))
         price = round_to_tick_size(price, tick_size)
         return price
     elif pos['currentQty'] < 0: # Short
-        price = pos['avgEntryPrice'] - (pos['avgEntryPrice'] * ((unrealisedPnlPcnt - trailing_pcnt) / lever))
+        price = pos['avgEntryPrice'] - (pos['avgEntryPrice'] * ((unrealisedRoePcnt - trailing_pcnt) / lever))
         price = round_to_tick_size(price, tick_size)
         return price
 
@@ -279,13 +271,13 @@ def check_far_stops(pos: dict):
                 if item['stop'] == 'down' and item['clientOid'] == f'{pos["symbol"]}far':
                     # If the liquidation price or amount of the stop is wrong, cancel and resubmit
                     if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size'] * -1: # Convert - to + and vise-versa because the stop is opposite
-                        td_client.cancel_all_stop_order(pos['symbol'])
+                        td_client.cancel_order(orderId=item['orderId'])
                         add_far_stop(pos)
         elif direction == 'short':
             if item['symbol'] == pos['symbol']:
                 if item['stop'] == 'up' and item['clientOid'] == f'{pos["symbol"]}far':
                     if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size'] * -1:
-                        td_client.cancel_all_stop_order(pos['symbol'])
+                        td_client.cancel_order(orderId=item['orderId'])
                         add_far_stop(pos)
 
 def check_trailing_stop(pos: dict):
@@ -294,19 +286,19 @@ def check_trailing_stop(pos: dict):
     direction = get_direction(pos)
     leverage = get_leverage(pos)
     trail_price = get_trailing_stop_price(pos, tick_size, leverage)
-    oid = pos['clientOid']
     for item in stops['items']:
+        oid = item['clientOid']
         if direction == 'long':
             if item['symbol'] == pos['symbol']:
                 if item['stop'] == 'down':
-                    if float(item['stopPrice']) != trail_price and oid == f'{pos["symbol"]}trail':
-                        td_client.cancel_order()
+                    if float(item['stopPrice']) != trail_price and item['clientOid'] == f'{pos["symbol"]}trail':
+                        td_client.cancel_order(orderId=item['orderId'])
                         add_trailing_stop(pos)
         elif direction == 'short':
             if item['symbol'] == pos['symbol']:
                 if item['stop'] == 'up':
-                    if float(item['stopPrice']) != trail_price and oid == f'{pos["symbol"]}trail':
-                        td_client.cancel_order()
+                    if float(item['stopPrice']) != trail_price and item['clientOid'] == f'{pos["symbol"]}trail':
+                        td_client.cancel_order(orderId=item['orderId'])
                         add_trailing_stop(pos)
 
 def check_pnl() -> None:
