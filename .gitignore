@@ -17,3 +17,5 @@ datas/
 kucoin-cli/
 kucoincli/
 test2.py
+stoploss_old.py
+indicators/
