@@ -17,11 +17,11 @@ api_passphrase = config['api']['passphrase']
 # Kucoin REST API Wrapper Client Objects
 md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase, is_sandbox=False, url='https://api-futures.kucoin.com')
 
-""" Example strategy for Golden Cross (50 EMA crossing 200 EMA) on 1 minute timeframe """
+""" Example strategy for Golden Cross (50 EMA crossing 200 EMA) """
 
 # Options
 database = True
-timeframe = 15
+timeframe = 1
 long = True # Enable longs
 short = True # Enable shorts
 watchlist = ('FTMUSDTM', 'VRAUSDTM')
@@ -61,11 +61,11 @@ def check_long_condition() -> bool:
         new_cross_up = df.tail(1)['Golden Cross Up'].bool()
         if cross_up != new_cross_up:
             cross_up = new_cross_up
-            print("50 EMA crossing 200 EMA UP!!")
+            print(f"50 EMA crossing 200 EMA UP for {symbol} on {timeframe} minute timeframe!!")
             # Add the event to the strategy table
             try:
                 if database:
-                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Up', 'time':datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S"), 'timeframe':timeframe}))
+                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Up', 'symbol':symbol, 'time':datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S"), 'timeframe':timeframe}))
             except Exception as e:
                 # Already in DB
                 #print(e)
@@ -90,10 +90,10 @@ def check_short_condition() -> bool:
         new_cross_down = df.tail(1)['Golden Cross Down'].bool()
         if cross_down != new_cross_down:
             cross_down = new_cross_down
-            print("50 EMA crossing 200 EMA DOWN!!")
+            print(f"50 EMA crossing 200 EMA DOWN for {symbol} on {timeframe} minute timeframe!!")
             if database:
                 try:
-                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Down', 'time':datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S"), 'timeframe':timeframe}))
+                    event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Down', 'symbol':symbol, 'time':datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S"), 'timeframe':timeframe}))
                 except Exception:
                     pass
             return True
