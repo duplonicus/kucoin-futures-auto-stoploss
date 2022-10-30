@@ -221,7 +221,7 @@ def check_positions() -> None:
         unrealised_roe_pcnt = get_unrealised_roe_pcnt(pos)
         # If unrealised ROE is higher enough to start trailing, add or check trailing stop
         if unrealised_roe_pcnt * 1e-2  > start_trailing_pcnt:
-            if stops is None: # If stops is None don't bother checking
+            if stops is None: # If stops is None, don't bother checking
                 add_trailing_stop(pos)
                 continue
             check_trailing_stop(pos)
@@ -250,7 +250,7 @@ def check_far_stop(pos: dict) -> None:
         elif direction == 'short':
             if item['symbol'] == pos['symbol']:
                 if item['stop'] == 'up' and item['clientOid'] == f'{pos["symbol"]}far':
-                    if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
+                    if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size'] * -1:
                         td_client.cancel_order(orderId=item['id'])
                         add_far_stop(pos)
     if pos['symbol'] not in stop_symbols:
