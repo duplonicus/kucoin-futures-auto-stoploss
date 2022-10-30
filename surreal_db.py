@@ -15,7 +15,6 @@ event_loop = asyncio.get_event_loop()
 async def create_all(table, data) -> dict:
     """Create a table and add data."""
     response = await client.create_all(table, data)
-    print(response)
     return response
 
 async def create_with_id(table, custom_id, data) -> dict:
