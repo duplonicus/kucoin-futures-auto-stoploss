@@ -41,8 +41,6 @@ async def main():
             # Log trades to database
             event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
             event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
-            # Here I can leverage SurrealDB to get the session PnL
-
             # This didn't work until I added await in front of it. Data is in database but throws an exception
         else:
             print(f'{response["data"]}')
@@ -59,7 +57,7 @@ async def main():
         # TODO: [KFAS-11] Figure out was causes the runtime error
         await ws_client.subscribe('/contractMarket/tradeOrders')
     except RuntimeError as r:
-        print(r)
+        #print(r)
         pass
     while True:
         await asyncio.sleep(60, loop=loop)
