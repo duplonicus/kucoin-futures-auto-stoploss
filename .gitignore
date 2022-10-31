@@ -19,3 +19,6 @@ kucoincli/
 test2.py
 stoploss_old.py
 indicators/
+session_total_test.py
+test3.py
+kucoin.sdb/
