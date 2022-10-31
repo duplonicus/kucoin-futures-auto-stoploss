@@ -16,7 +16,7 @@
 				"type": "shell",
 				"command": "",
 				"windows": {
-					"command": "surreal.exe start --log debug --user root --pass root memory"
+					"command": "surreal.exe start --log debug --user root --pass root file:./kucoin.sdb"
 				},
 				"presentation": {
 					"group": "startup",
