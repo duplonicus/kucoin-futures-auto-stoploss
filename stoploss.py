@@ -35,7 +35,7 @@ md_client = MarketData(key=api_key,
 
 """ Options """
 # Number of seconds between each loop
-sleep_time = .5
+sleep_time = 1.5
 
 # Number of ticks away from liquidation price for stoploss price. Must be integer >= 1.
 ticks_from_liq = 2
@@ -47,20 +47,19 @@ ticks_from_liq = 2
 # .3 is 30%
 #profit_target_pcnt = 0.30
 
-# Unrealized ROE percent to begin trailing.
+# get_start_trailing_pcnt() returns the break even percent of the trade plus this percentage.
 # .1 is 10%
-start_trailing_pcnt = .10
+start_trailing_pcnt_lead = .10 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
 
-# The unrealised ROE percentage for the first trailing stop.
-# Use a value lower than start_trailing_pcnt or the trade will be stopped out right away,
-# but higher than your realized loss percent due to fees or it will close at a loss.
-### TODO: [KFAS-2] Calculate what this should be based on initial leverage so that it is always enough to cover fees
-# = (fee * leverage) * 2 = (0.08 * 20) * 2
-# If fees are 0.08%: @ 20X break even at 3.2%, @75X break even 12%, at 100X break even at 16%
-trailing_pcnt = .05 # .05 is 5%
+# How much leeway between the start_trailing_pcnt and the trailing stop.
+# .05 is 5%
+leeway_pcnt = .05 # Example: start trailing at 13.2% ROE, trailing stop is placed at 7.2%
 
-# How much the unrealised PnL must increase to bump the stop
+# How much the unrealised PnL must increase to bump the stop.
 trailing_bump_pcnt = .05 # .05 is 5%
+
+# Your trading fee based on VIP level
+fee = 0.08
 
 # Set to True after installing SurrealDB: https://surrealdb.com/
 database = True
@@ -196,6 +195,15 @@ def get_tick_size(pos: dict) -> str:
         tick_size = symbol_data["tickSize"]
     return tick_size
 
+def get_start_trailing_pcnt(pos: dict) -> float:
+    """ Returns the break-even percent plus the leeway_pcnt """
+    leverage = get_leverage(pos)
+    fee
+    start_trailing_pcnt = (fee * leverage) * 2 # This is the percentage that the trade breaks even
+    start_trailing_pcnt = start_trailing_pcnt * 1e-2 # Shift the decimal to the left 2 places
+    start_trailing_pcnt = start_trailing_pcnt + start_trailing_pcnt_lead # Add some amount to it so the first trailing stop will be in profit
+    return start_trailing_pcnt
+
 def cancel_stops_without_pos() -> None:
     """ Cancels stops without a position. """
     for item in stops["items"]:
@@ -220,7 +228,7 @@ def check_positions() -> None:
     for pos in positions:
         unrealised_roe_pcnt = get_unrealised_roe_pcnt(pos)
         # If unrealised ROE is higher enough to start trailing, add or check trailing stop
-        if unrealised_roe_pcnt * 1e-2  > start_trailing_pcnt:
+        if unrealised_roe_pcnt * 1e-2  > get_start_trailing_pcnt(pos):
             if pos['symbol'] not in stop_symbols:
                 add_trailing_stop(pos)
                 continue
@@ -247,7 +255,7 @@ def check_far_stop(pos: dict) -> None:
         elif direction == 'short':
             if item['symbol'] == pos['symbol']:
                 if item['stop'] == 'up' and item['clientOid'] == f'{pos["symbol"]}far':
-                    if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size'] * -1:
+                    if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
                         td_client.cancel_order(orderId=item['id'])
                         add_far_stop(pos)
 
@@ -265,15 +273,13 @@ def add_far_stop(pos: dict) -> None:
     direction = get_direction(pos)
     stop_price = get_far_stop_price(pos)
     leverage = get_leverage(pos)
+    stop = 'down' if direction == 'long' else 'up'
+    side = 'buy' if direction == 'short' else 'sell'
     # Submit the stoploss order
     oId = f'{pos["symbol"]}far'
-    if direction == "long":
-        print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
-        # 'price' and 'lever' can be 0 because 'stop' has a value. 'closeOrder=True' ensures a position won't be entered or increase. 'TP' means last traded price.
-        td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side='sell', symbol=pos['symbol'], stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=pos["currentQty"])
-    elif direction == "short":
-        print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
-        td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side='buy', symbol=pos['symbol'], stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=pos["currentQty"] * -1)
+    print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
+    # 'price' and 'lever' can be 0 because 'stop' has a value. 'closeOrder=True' ensures a position won't be entered or increase. 'TP' means last traded price.
+    td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=pos["currentQty"])
 
 def check_trailing_stop(pos: dict):
     """ Make sure the trailing stop is correct, if not, cancel and resubmit. """
@@ -295,35 +301,33 @@ def check_trailing_stop(pos: dict):
 
 def get_trailing_stop_price(pos: dict) -> float:
     """ Returns a trailing stop price. """
+    direction = get_direction(pos)
     tick_size = get_tick_size(pos)
     lever = get_leverage(pos)
     unrealisedRoePcnt = pos['unrealisedRoePcnt']
     # Get remainder and subract it from the unrealised ROE
     remainder = np.remainder(unrealisedRoePcnt, trailing_bump_pcnt)
     unrealisedRoePcnt = unrealisedRoePcnt - remainder
-    if pos['currentQty'] > 0: # Long
-        price = pos['avgEntryPrice'] + (pos['avgEntryPrice'] * ((unrealisedRoePcnt - trailing_pcnt) / lever))
+    if direction == 'long':
+        price = pos['avgEntryPrice'] + (pos['avgEntryPrice'] * ((unrealisedRoePcnt - leeway_pcnt) / lever)) # Add for long
         price = round_to_tick_size(price, tick_size)
         return price
-    elif pos['currentQty'] < 0: # Short
-        price = pos['avgEntryPrice'] - (pos['avgEntryPrice'] * ((unrealisedRoePcnt - trailing_pcnt) / lever))
+    elif direction == 'short':
+        price = pos['avgEntryPrice'] - (pos['avgEntryPrice'] * ((unrealisedRoePcnt - leeway_pcnt) / lever)) # Subtract for short
         price = round_to_tick_size(price, tick_size)
         return price
 
 def add_trailing_stop(pos: dict) -> None:
     """ Adds a trailing stop. """
-    direction = 'long' if pos['currentQty'] > 0 else 'short'
+    direction = get_direction(pos)
+    stop = 'down' if direction == 'long' else 'up'
     side = 'buy' if direction == 'short' else 'sell'
     leverage = get_leverage(pos)
     trail_price = get_trailing_stop_price(pos)
     amount = pos['currentQty']
     oid = f'{pos["symbol"]}trail'
-    if direction == "long":
-        print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}')
-        td_client.create_limit_order(clientOid=oid, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop='down', stopPrice=trail_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
-    elif direction == "short":
-        print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}')
-        td_client.create_limit_order(clientOid=oid, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop='up', stopPrice=trail_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
+    print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}')
+    td_client.create_limit_order(clientOid=oid, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
 
 # Debugging
 """ print(f"Positions: -------\\\n{get_positions()}")
@@ -339,13 +343,14 @@ def main():
 
             if not initialized:
                 init()
+                #print(f'> [{datetime.now().strftime("%A %d-%m-%Y, %H:%M:%S")}] Stops will begin trailing @ {get_start_trailing_pcnt() * 100}%')
 
             get_positions()
             get_stops()
             get_symbol_list()
             get_stop_symbol_list()
 
-            if stops is not None and not positions:
+            if stops is not None:
                 cancel_stops_without_pos()
 
             if not positions:
@@ -370,7 +375,7 @@ def main():
                         ''.join(str(get_leverage(pos)).upper() for pos in positions), 'X', ' '.join(str(pos['symbol']) for pos in positions),
                         """ ''.join(str(pos['direction']).upper() for pos in pos_data.values()), """ ' '.join(str(pos['markPrice']) for pos in positions), '$',
                         ''.join(str(pos['currentQty']) for pos in positions), '@', ''.join(str(round(pos['unrealisedRoePcnt'] * 100, 2)) for pos in positions),
-                        '% ', end='\r') # the part that's commented out can't be done without the old pos_data dict
+                        '%                                              ', end='\r') # the part that's commented out can't be done without the old pos_data dict
                 else:
                     print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Active positions: {symbols}            ', end='\r')
 
@@ -378,16 +383,16 @@ def main():
 
         except KeyboardInterrupt:
             # TODO: [KFAS-18] Don't say 'nice trades' if the PnL for the session is negative
+            cancel_stops_without_pos()
             session = event_loop.run_until_complete(select_all('session'))
-
             quote = requests.get("https://zenquotes.io/api/random").json()[0]["q"]
             print('\n', quote, "Nice trades!!! See you tomorrow... :)                                           ")
             quit()
 
-        """ except Exception as e:
+        except Exception as e:
             print(e)
             time.sleep(sleep_time)
-            pass """
+            pass
 
 if __name__ == '__main__':
     main()
