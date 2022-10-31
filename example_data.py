@@ -7,7 +7,6 @@
 
 # Stops: -------\
 {
-
     'currentPage': 1,
     'pageSize': 50,
     'totalNum': 4,
@@ -29,17 +28,6 @@
         }
     ]
 }
-
-# Symbols: -------\
-['ETHUSDTM']
-
-# Pos Data: -------\
-{
-    'ETHUSDTM': {
-        'direction': 'short', 'liq_price': 1291.25, 'stop_loss': True, 'stop_price': '1291.15', 'take_profit': True, 'profit_price': '1278.3604', 'tick_size': 0.05, 'amount': -2, 'mark_price': 1287.03, 'initial_leverage': 75, 'unrealised_roe_pcnt': -0.2312
-    }
-}
-
 # K Lines
 {
     "code": "200000",

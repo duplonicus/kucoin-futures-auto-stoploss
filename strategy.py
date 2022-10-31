@@ -51,7 +51,7 @@ def check_long_condition() -> bool:
         # Set the index for pandas_ta functionality. Not sure what requires this, just keep it.
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         # Get EMAs with pandas_ta
-        df['Golden Cross Up'] = df.ta.ema(50, append=True) > df.ta.ema(200, append=True)
+        df['Golden Cross Up'] = df.ta.ema(50, append=True) < df.ta.ema(200, append=True)
         # Return after getting first result, compare to second result on next loop, otherwise we aren't detecting the change
         if first_check_long is True:
             cross_up = df.tail(1)['Golden Cross Up'].bool()
@@ -82,7 +82,7 @@ def check_short_condition() -> bool:
         df = pd.DataFrame(k_lines)
         df.columns = K_LINE_COLUMNS
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
-        df['Golden Cross Down'] = df.ta.ema(50, append=True) < df.ta.ema(200, append=True)
+        df['Golden Cross Down'] = df.ta.ema(50, append=True) > df.ta.ema(200, append=True)
         if first_check_short is True:
             cross_down = df.tail(1)['Golden Cross Down'].bool()
             first_check_short = False
@@ -90,7 +90,7 @@ def check_short_condition() -> bool:
         new_cross_down = df.tail(1)['Golden Cross Down'].bool()
         if cross_down != new_cross_down:
             cross_down = new_cross_down
-            print(f"50 EMA crossing 200 EMA DOWN for {symbol} on {timeframe} minute timeframe!!")
+            print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] 50 EMA crossing 200 EMA DOWN for {symbol} on {timeframe} minute timeframe!!')
             if database:
                 try:
                     event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Down', 'symbol':symbol, 'time':datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S"), 'timeframe':timeframe}))

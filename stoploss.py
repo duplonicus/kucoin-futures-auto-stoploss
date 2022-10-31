@@ -41,11 +41,11 @@ sleep_time = .5
 ticks_from_liq = 2
 
 # Enable take-profit orders at the profit_target_pcnt
-take_profit = True
+#take_profit = True
 
 # Unrealized ROE percent target for take-profit order
 # .3 is 30%
-profit_target_pcnt = 0.30
+#profit_target_pcnt = 0.30
 
 # Unrealized ROE percent to begin trailing.
 # .1 is 10%
@@ -55,8 +55,8 @@ start_trailing_pcnt = .10
 # Use a value lower than start_trailing_pcnt or the trade will be stopped out right away,
 # but higher than your realized loss percent due to fees or it will close at a loss.
 ### TODO: [KFAS-2] Calculate what this should be based on initial leverage so that it is always enough to cover fees
-### It would need to be > realized PnL * 2 to break even for first stop
-### Maybe I will just subtract this amount from the start trailing percent for bumped stops
+# = (fee * leverage) * 2 = (0.08 * 20) * 2
+# If fees are 0.08%: @ 20X break even at 3.2%, @75X break even 12%, at 100X break even at 16%
 trailing_pcnt = .05 # .05 is 5%
 
 # How much the unrealised PnL must increase to bump the stop
@@ -73,11 +73,11 @@ if strategy:
     from strategy import *
 
 """ Variables """
-positions = td_client.get_all_position()
-stops = td_client.get_open_stop_order()
+positions = {}
+stops = {}
+symbols_dict = {}
 symbols = []
 stop_symbols = []
-symbols_dict = {}
 initialized = False
 
 """ Functions """
@@ -138,7 +138,7 @@ def get_symbol_list() -> list:
     return symbols
 
 def get_stop_symbol_list() -> list:
-    """ Returns a list of symbols from stop orders. """
+    """ Returns a list of symbols from stops. """
     global stop_symbols
     stop_symbols = []
     if stops is None:
@@ -221,30 +221,27 @@ def check_positions() -> None:
         unrealised_roe_pcnt = get_unrealised_roe_pcnt(pos)
         # If unrealised ROE is higher enough to start trailing, add or check trailing stop
         if unrealised_roe_pcnt * 1e-2  > start_trailing_pcnt:
-            if stops is None: # If stops is None, don't bother checking
+            if pos['symbol'] not in stop_symbols:
                 add_trailing_stop(pos)
                 continue
             check_trailing_stop(pos)
         # If unrealised ROE isn't high enough to start trailing, add or check far stop
         else:
-            if stops is None:
+            if pos['symbol'] not in stop_symbols:
                 add_far_stop(pos)
                 continue
             check_far_stop(pos)
 
 def check_far_stop(pos: dict) -> None:
     """ Submits far stop order if not present. """
-    tick_size = get_tick_size(pos)
     direction = get_direction(pos)
-    stop_price = get_far_stop_price(direction, pos['liquidationPrice'], tick_size)
-    stop_symbols = get_stop_symbol_list()
+    stop_price = get_far_stop_price(pos)
     for item in stops['items']:
         if direction == 'long':
             if item['symbol'] == pos['symbol']:
                 if item['stop'] == 'down' and item['clientOid'] == f'{pos["symbol"]}far':
                     # If the liquidation price or amount of the stop is wrong, cancel and resubmit
                     if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']: # Convert - to + and vise-versa because the stop is opposite
-                        print(float(item['stopPrice']))
                         td_client.cancel_order(orderId=item['id'])
                         add_far_stop(pos)
         elif direction == 'short':
@@ -253,39 +250,35 @@ def check_far_stop(pos: dict) -> None:
                     if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size'] * -1:
                         td_client.cancel_order(orderId=item['id'])
                         add_far_stop(pos)
-    if pos['symbol'] not in stop_symbols:
-        add_far_stop(pos)
 
-def get_far_stop_price(direction: str, liq_price: float | int, tick_size: str) -> float:
+def get_far_stop_price(pos: dict) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
-    tick_size = float(tick_size)
+    direction = get_direction(pos)
+    tick_size = float(get_tick_size(pos))
     if direction == "long":
-        return round_to_tick_size(liq_price + tick_size * ticks_from_liq, tick_size)
+        return round_to_tick_size(pos['liquidationPrice'] + tick_size * ticks_from_liq, tick_size)
     elif direction == "short":
-        return round_to_tick_size(liq_price - tick_size * ticks_from_liq, tick_size)
+        return round_to_tick_size(pos['liquidationPrice'] - tick_size * ticks_from_liq, tick_size)
 
 def add_far_stop(pos: dict) -> None:
     """ Adds a stop loss ticks_from_liq away from the liquidation price. """
     direction = get_direction(pos)
-    tick_size = get_tick_size(pos)
-    stop_price = get_far_stop_price(direction, pos['liquidationPrice'], tick_size)
+    stop_price = get_far_stop_price(pos)
     leverage = get_leverage(pos)
-    print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
     # Submit the stoploss order
     oId = f'{pos["symbol"]}far'
     if direction == "long":
+        print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
         # 'price' and 'lever' can be 0 because 'stop' has a value. 'closeOrder=True' ensures a position won't be entered or increase. 'TP' means last traded price.
         td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side='sell', symbol=pos['symbol'], stop='down', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=pos["currentQty"])
     elif direction == "short":
+        print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
         td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side='buy', symbol=pos['symbol'], stop='up', stopPrice=stop_price, stopPriceType='TP', price=0, lever=0, size=pos["currentQty"] * -1)
 
 def check_trailing_stop(pos: dict):
     """ Make sure the trailing stop is correct, if not, cancel and resubmit. """
-    tick_size = get_tick_size(pos)
     direction = get_direction(pos)
-    leverage = get_leverage(pos)
-    trail_price = get_trailing_stop_price(pos, tick_size, leverage)
-    stop_symbols = get_stop_symbol_list()
+    trail_price = get_trailing_stop_price(pos)
     for item in stops['items']:
         if direction == 'long':
             if item['symbol'] == pos['symbol']:
@@ -299,11 +292,11 @@ def check_trailing_stop(pos: dict):
                     if float(item['stopPrice']) > trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
                         td_client.cancel_order(orderId=item['id'])
                         add_trailing_stop(pos)
-    if pos['symbol'] not in stop_symbols:
-        add_trailing_stop(pos)
 
-def get_trailing_stop_price(pos: dict, tick_size: str, lever: int) -> float:
+def get_trailing_stop_price(pos: dict) -> float:
     """ Returns a trailing stop price. """
+    tick_size = get_tick_size(pos)
+    lever = get_leverage(pos)
     unrealisedRoePcnt = pos['unrealisedRoePcnt']
     # Get remainder and subract it from the unrealised ROE
     remainder = np.remainder(unrealisedRoePcnt, trailing_bump_pcnt)
@@ -321,12 +314,15 @@ def add_trailing_stop(pos: dict) -> None:
     """ Adds a trailing stop. """
     direction = 'long' if pos['currentQty'] > 0 else 'short'
     side = 'buy' if direction == 'short' else 'sell'
-    trail_price = get_trailing_stop_price(pos, get_tick_size(pos), get_leverage(pos))
+    leverage = get_leverage(pos)
+    trail_price = get_trailing_stop_price(pos)
     amount = pos['currentQty']
     oid = f'{pos["symbol"]}trail'
     if direction == "long":
+        print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}')
         td_client.create_limit_order(clientOid=oid, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop='down', stopPrice=trail_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
     elif direction == "short":
+        print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}')
         td_client.create_limit_order(clientOid=oid, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop='up', stopPrice=trail_price, stopPriceType='TP', price=0, lever=0, size=amount) # size and lever can be 0 because stop has a value. reduceOnly=True ensures a position won't be entered or increase. 'TP' means last traded price
 
 # Debugging
@@ -347,12 +343,13 @@ def main():
             get_positions()
             get_stops()
             get_symbol_list()
+            get_stop_symbol_list()
 
             if stops is not None and not positions:
                 cancel_stops_without_pos()
 
             if not positions:
-                print(f"> [{datetime.now().strftime('%A %d-%m-%Y, %H:%M:%S')}] No active positions... Start a trade!         ", end="\r")
+                print(f"> [{datetime.now().strftime('%A %d-%m-%Y, %H:%M:%S')}] No active positions... Start a trade!                        ", end="\r")
                 time.sleep(sleep_time)
                 continue
 
@@ -387,10 +384,10 @@ def main():
             print('\n', quote, "Nice trades!!! See you tomorrow... :)                                           ")
             quit()
 
-        except Exception as e:
+        """ except Exception as e:
             print(e)
             time.sleep(sleep_time)
-            pass
+            pass """
 
 if __name__ == '__main__':
     main()

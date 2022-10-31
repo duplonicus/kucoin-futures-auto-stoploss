@@ -2,11 +2,11 @@
 
 ## Features
 
-Automatic stop-losses, trailing stop-losses, take-profits, and algo-trading
+Automatic stop-losses, trailing stop-losses, take-profits, and algo-trading.
 
 ## About
 
-The main purpose of this script is to prevent liquidation events. When a position exists or is entered, it creates a stoploss and take-profit order at the specified targets, resubmits the orders if the position size or liquidation price changes, or cancels the orders if the position is closed. It can also manage trailing-stops at the specified unrealized ROE percentages.
+The main purpose of this script is to prevent liquidation events. When a position exists or is entered, it creates a stoploss order at the specified target, resubmits the order if the position size or liquidation price changes, or cancels the order if the position is closed. The original stoploss is replaced with a trailing-stop at the specified unrealized ROE percentage.
 
 The orders appear on the Stop Orders tab and the trader can still use the stop/take-profit button on the Positions tab to set a closer stop or take profit price.
 
@@ -21,7 +21,7 @@ Even if the stop is only a few ticks away from the liquidation price, being stop
 1. Clone the repository:
 
         git clone https://github.com/duplonicus/kucoin-futures-auto-stoploss.git
-2. Install [Python 3.10](https://www.python.org/downloads/release/python-3100/) or setup new virtual environment for 3.10.
+2. Install [Python 3.10](https://www.python.org/downloads/release/python-3100/) or set up new virtual environment for 3.10.
 
 3. Install the requirements from a terminal in the repository with pip.
 
@@ -39,14 +39,9 @@ Even if the stop is only a few ticks away from the liquidation price, being stop
 
 </details>
 
-</br>
-
 ## Algo-trading
-
-___
 
 Define your strategy in strategy.py. Example 'Golden Cross' strategy included.
 
 ## Demo
 
-___
