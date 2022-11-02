@@ -53,7 +53,7 @@ database = True
 if database:
     from surreal_db import *
 
-# Set to True after defining a strategy and setting up SurrealDB
+# Set to True after defining a strategy
 strategy = False
 if strategy:
     from strategy import *
@@ -312,7 +312,7 @@ def add_trailing_stop(pos: dict) -> None:
     oid = f'{pos["symbol"]}trail'
     print(f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}')
     # Size and lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
-    td_client.create_limit_order(clientOid=oid, closeOrder=True, type='limit', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=0, lever=0, size=amount)
+    td_client.create_limit_order(clientOid=oid, closeOrder=True, type='limit', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
 
 # Debugging
 """ print(f"Positions: -------\\\n{get_positions()}")
