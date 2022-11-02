@@ -27,7 +27,7 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 
 """ Options """
 # Number of seconds between each loop
-sleep_time = 1.5
+sleep_time = 0.5
 
 # Number of ticks away from liquidation price for stoploss
 ticks_from_liq = 2
@@ -277,10 +277,12 @@ def check_trailing_stop(pos: dict):
         if direction == 'long' and item['symbol'] == pos['symbol'] and item['stop'] == 'down':
             if float(item['stopPrice']) < trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
                 td_client.cancel_order(orderId=item['id'])
+                time.sleep(.2)
                 add_trailing_stop(pos)
         elif direction == 'short' and item['symbol'] == pos['symbol'] and item['stop'] == 'up':
             if float(item['stopPrice']) > trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
                 td_client.cancel_order(orderId=item['id'])
+                time.sleep(.2)
                 add_trailing_stop(pos)
 
 def get_trailing_stop_price(pos: dict) -> float:
@@ -314,7 +316,7 @@ def add_trailing_stop(pos: dict) -> None:
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
     time.sleep(.5) # Trying to fix rate limit issue
-    td_client.create_limit_order(clientOid=oid, closeOrder=True, type='limit', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
+    td_client.create_limit_order(clientOid=oid, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
 
 # Debugging
 """ print(f"Positions: -------\\\n{get_positions()}")
