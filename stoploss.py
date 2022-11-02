@@ -311,7 +311,9 @@ def add_trailing_stop(pos: dict) -> None:
     amount = pos['currentQty']
     oid = f'{pos["symbol"]}trail'
     print(f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}')
-    # Size and lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
+    # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
+    # If using a limit order, 'price' needs a value
+    time.sleep(.5) # Trying to fix rate limit issue
     td_client.create_limit_order(clientOid=oid, closeOrder=True, type='limit', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
 
 # Debugging
@@ -361,9 +363,9 @@ def main():
                 if len(symbols) == 1:
                     print(f'> [{datetime.now().strftime(strftime)}] Active positions:',
                         ''.join(str(get_leverage(pos)).upper() for pos in positions), 'X', ' '.join(str(pos['symbol']) for pos in positions),
-                        """ ''.join(str(pos['direction']).upper() for pos in pos_data.values()), """ ' '.join(str(pos['markPrice']) for pos in positions), '$',
+                        ''.join(str(get_direction(pos)).upper() for pos in positions), ' '.join(str(pos['markPrice']) for pos in positions), '$',
                         ''.join(str(pos['currentQty']) for pos in positions), '@', ''.join(str(round(pos['unrealisedRoePcnt'] * 100, 2)) for pos in positions),
-                        '%                                              ', end='\r') # the part that's commented out can't be done without the old pos_data dict
+                        '%                                              ', end='\r')
                 else:
                     print(f'> [{datetime.now().strftime(strftime)}] Active positions: {symbols}                           ', end='\r')
 
