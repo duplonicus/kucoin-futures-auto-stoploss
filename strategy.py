@@ -43,7 +43,7 @@ def check_long_condition() -> bool:
     global first_check_long, cross_up
     for symbol in watchlist:
         # Get k_line data from Kucoin
-        k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks. See below.
+        k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks.
         # Create dataframe
         df = pd.DataFrame(k_lines)
         # Rename columns
@@ -61,7 +61,7 @@ def check_long_condition() -> bool:
         new_cross_up = df.tail(1)['Golden Cross Up'].bool()
         if cross_up != new_cross_up:
             cross_up = new_cross_up
-            print(f"50 EMA crossing 200 EMA UP for {symbol} on {timeframe} minute timeframe!!")
+            print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] 50 EMA crossing 200 EMA UP for {symbol} on {timeframe} minute timeframe!!')
             # Add the event to the strategy table
             try:
                 if database:
@@ -78,7 +78,7 @@ def check_short_condition() -> bool:
     """ Do something to make the condition True """
     global first_check_short, cross_down
     for symbol in watchlist:
-        k_lines = md_client.get_kline_data(symbol, timeframe) # Returns data for the last 200 candlesticks. See below Example k_line data.
+        k_lines = md_client.get_kline_data(symbol, timeframe)
         df = pd.DataFrame(k_lines)
         df.columns = K_LINE_COLUMNS
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)

@@ -51,10 +51,25 @@ async def delete_one(table, custom_id) -> dict:
     """ Delete a record with a specified id. """
     await client.delete_one(table, custom_id)
 
+async def get_kv() -> dict:
+    """ Returns KV info. """
+    response = await client.execute('info for kv')
+    return response
+
+async def get_ns() -> dict:
+    """ Returns NS info. """
+    response = await client.execute('info for ns')
+    return response
+
+async def get_db() -> dict:
+    """ Returns DB info, list of tables. """
+    response = await client.execute('info for db')
+    return response
+
 async def my_query(query) -> dict:
     """ Execute a custom query. """
     response = await client.execute(query)
     return response
 
 if __name__ == "__main__":
-    event_loop.run_until_complete(create_with_id('strategy', 'time::now()', {'Golden Cross Up':'time::now()'}))
+    event_loop.run_until_complete(create_with_id('test', 'test', {'test':'test'}))

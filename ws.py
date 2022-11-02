@@ -41,6 +41,7 @@ async def main():
             # Log trades to database
             event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
             event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
+            
             # This didn't work until I added await in front of it. Data is in database but throws an exception
         else:
             print(f'{response["data"]}')
