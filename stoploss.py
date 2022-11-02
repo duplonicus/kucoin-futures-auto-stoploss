@@ -36,7 +36,7 @@ ticks_from_liq = 2
 # .1 is 10%
 start_trailing_pcnt_lead = .10 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
 
-# The amount of leeway between the start_trailing_pcnt and the trailing stop.
+# The amount of leeway between the start_trailing_pcnt and the trailing stop
 leeway_pcnt = .05 # Example: start trailing at 13.2% unrealised ROE, trailing stop is placed at 7.2%
 
 # How much the unrealised ROE must increase to bump the stop
@@ -45,7 +45,7 @@ trailing_bump_pcnt = .05
 # Your trading fee based on VIP level
 fee = 0.08
 
-# The percentage of account balance you normally trade with, not used for any caculations
+# The percentage of account balance you normally trade with, not used for any calculations
 trade_pcnt = 0.10
 
 # Set to True after installing SurrealDB: https://surrealdb.com/
@@ -53,8 +53,8 @@ database = True
 if database:
     from surreal_db import *
 
-# Set to true after defining a strategy and setting up SurrealDB
-strategy = True
+# Set to True after defining a strategy and setting up SurrealDB
+strategy = False
 if strategy:
     from strategy import *
 
@@ -94,7 +94,8 @@ def init() -> None:
         initialized = True
         print("> Install SurrealDB!")
 
-def get_futures_balance():
+def get_futures_balance() -> float:
+    """ Returns the amount of USDT in the futures account """
     overview = ud_client.get_account_overview('USDT')
     return overview['availableBalance']
 
@@ -152,8 +153,6 @@ def sell() -> None:
         #td_client.create_limit_order(side='sell', symbol='', type='', price='', lever='', size='')
         return
 
-### New code ###
-### These functions return info for a given position, replaces old get_position_data function
 def get_direction(pos: dict) -> str:
     """ Returns 'long' or 'short'. """
     direction = 'long' if pos['currentQty'] > 0 else 'short'
@@ -324,7 +323,7 @@ def main():
     """ Happy Trading! """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
-        # TODO: [KFAS-5] Figure out which requests are too close together though it doesn't really matter yet.. because the script will finish what it wants to do after the timeout. Or maybe it won't happen once everything is working
+        # TODO: [KFAS-5] Figure out which requests are trigging the rate limit
         try:
 
             if not initialized:
@@ -371,16 +370,15 @@ def main():
             time.sleep(sleep_time)
 
         except KeyboardInterrupt:
-            # TODO: [KFAS-18] Don't say 'nice trades' if the PnL for the session is negative
             if stops is not None:
                 cancel_stops_without_pos()
             end_balance = get_futures_balance()
             session_pnl = round(end_balance - balance, 2)
             quote = requests.get("https://zenquotes.io/api/random").json()[0]["q"]
             if session_pnl >= 0:
-                print('\n', quote, "Nice trades! See you tomorrow... :)                                             ")
+                print('\n', quote, "Nice trades! See you tomorrow...                                            ")
             else:
-                print('\n', quote, "Those sure were some trades... See you tomorrow... :)                           ")
+                print('\n', quote, "Those sure were some trades! See you tomorrow...                            ")
             quit()
 
         except Exception as e:
