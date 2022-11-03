@@ -226,6 +226,7 @@ def round_to_tick_size(number: float | int, tick_size: float | int | str) -> flo
     tick_size = tick_size.rstrip("0") # Remove trailing 0s that appear from prior conversion
     num_decimals = len(tick_size.split('.')[1]) # Split the tick_size at the decimal, get the # of digits after
     tick_size = float(tick_size)
+    rounded = round(number, num_decimals)
     rounded = round(number / tick_size) * tick_size # To nearest = round(num / decimal) * decimal
     rounded = round(number, num_decimals)
     return rounded
@@ -239,13 +240,15 @@ def check_positions() -> None:
             if pos['symbol'] not in stop_symbols:
                 add_trailing_stop(pos)
                 continue
-            check_trailing_stop(pos)
+            elif pos['symbol'] in stop_symbols:
+                check_trailing_stop(pos)
         # If unrealised ROE isn't high enough to start trailing, add or check far stop
         else:
             if pos['symbol'] not in stop_symbols:
                 add_far_stop(pos)
                 continue
-            check_far_stop(pos)
+            elif pos['symbol'] in stop_symbols: # Tring to figure out why this was called after a trailing stop triggered
+                check_far_stop(pos) 
 
 def check_far_stop(pos: dict) -> None:
     """ Submits far stop order if not present. """
@@ -305,7 +308,7 @@ def check_trailing_stop(pos: dict):
             if float(item['stopPrice']) > trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
                 td_client.cancel_order(orderId=item['id'])
                 time.sleep(.1) # Rate limit
-                add_trailing_stop('Stoploss', pos)
+                add_trailing_stop(pos)
 
 def get_trailing_stop_price(pos: dict) -> float:
     """ Returns a trailing stop price. """
