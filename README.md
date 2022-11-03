@@ -28,7 +28,7 @@ Even if the stop is only a few ticks away from the liquidation price, provided t
 
         pip install -r requirements.txt
 
-4. Install [SurrealDB](https://surrealdb.com/) and set respective options in stoploss.py to True to enable trade logging and algo-trading.
+4. Install [SurrealDB](https://surrealdb.com/) and set respective options in stoploss.py to True to enable additional functionality.
 
 5. Create secret.ini in the root of the repository and add your Kucoin API connection info and Discord webhook URL.
 

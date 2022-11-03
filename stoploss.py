@@ -54,7 +54,7 @@ if database:
     from surreal_db import *
 
 # Set to True after defining a strategy
-strategy = False
+strategy = True
 if strategy:
     from strategy import *
 
@@ -248,7 +248,7 @@ def check_positions() -> None:
                 add_far_stop(pos)
                 continue
             elif pos['symbol'] in stop_symbols: # Tring to figure out why this was called after a trailing stop triggered
-                check_far_stop(pos) 
+                check_far_stop(pos)
 
 def check_far_stop(pos: dict) -> None:
     """ Submits far stop order if not present. """
@@ -289,7 +289,8 @@ def add_far_stop(pos: dict) -> None:
     oId = f'{pos["symbol"]}far'
     msg = f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}'
     print(msg)
-    # 'size' and 'lever' can be 0 because 'stop' has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
+    # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
+    # If using type='limit', 'price' needs a value
     time.sleep(.34) # Rate limit
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='MP', price=0, lever=0, size=pos["currentQty"])
     disco_log('Stoploss', msg)
@@ -336,12 +337,12 @@ def add_trailing_stop(pos: dict) -> None:
     leverage = get_leverage(pos)
     trail_price = get_trailing_stop_price(pos)
     amount = pos['currentQty']
-    oid = f'{pos["symbol"]}trail'
+    oId = f'{pos["symbol"]}trail'
     msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}'
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
-    td_client.create_limit_order(clientOid=oid, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
+    td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
     disco_log('Trailing Stop', msg)
     time.sleep(.1) # Rate limit
 
@@ -362,6 +363,7 @@ def main():
                 print(f'> [{datetime.now().strftime(strftime)}] Stops will begin trailing at break-even plus {start_trailing_pcnt_lead * 1e2}% with a leeway of {leeway_pcnt * 1e2}% and increase every {trailing_bump_pcnt * 1e2}%')
                 balance = round(get_futures_balance(), 2)
                 print(f'> [{datetime.now().strftime(strftime)}] Account Balance: {balance} USDT -> {round(trade_pcnt * 1e2)}% of Account Balance: {round(balance * trade_pcnt, 2)} USDT')
+                print('> [{}] Strategy is {}'.format(datetime.now().strftime(strftime), 'Enabled' if strategy else 'Disabeld'))
 
             get_positions()
             time.sleep(.34) # Rate limit
@@ -399,7 +401,13 @@ def main():
                         ''.join(str(pos['currentQty']) for pos in positions), '@', ''.join(str(round(pos['unrealisedRoePcnt'] * 100, 2)) for pos in positions),
                         '%                                              ', end='\r')
                 else:
-                    print(f'> [{datetime.now().strftime(strftime)}] Active positions: {symbols}                           ', end='\r')
+                    print(f'> [{datetime.now().strftime(strftime)}] Active positions: {symbols}', end='\r')
+
+                def print_positions():
+                    pos_stats = ''
+                    for pos in positions:
+                        pos_stats = pos_stats + f"Active positions: {get_leverage(pos).upper()}X {pos['symbol']} {get_direction(pos).upper()} {pos['markPrice']} {pos['currentQty']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
+                    return pos_stats
 
             time.sleep(sleep_time)
 
@@ -415,10 +423,10 @@ def main():
                 print('\n', quote, "Those sure were some trades! See you tomorrow...                            ")
             quit()
 
-        except Exception as e:
+        """ except Exception as e:
             print(e)
             time.sleep(sleep_time)
-            pass
+            pass """
 
 if __name__ == '__main__':
     main()

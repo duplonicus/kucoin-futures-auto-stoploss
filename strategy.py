@@ -24,7 +24,7 @@ database = True
 timeframe = 1
 long = True # Enable longs
 short = True # Enable shorts
-watchlist = ('FTMUSDTM', 'VRAUSDTM', 'XBTUSDTM', 'ETHUSDTM')
+watchlist = ('XBTUSDTM', 'ETHUSDTM')
 
 # Variables
 longs = {}

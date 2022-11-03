@@ -10,5 +10,6 @@ indicators/
 kucoin.sdb/
 tests/
 notebooks/
+scrapers/
 secret.ini
 KuCoin_logo.png
