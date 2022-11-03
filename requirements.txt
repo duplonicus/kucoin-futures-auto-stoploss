@@ -5,3 +5,4 @@ pandas-ta
 requests
 pyfiglet
 numpy
+discord-webhook
