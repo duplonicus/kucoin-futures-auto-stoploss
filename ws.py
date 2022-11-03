@@ -39,8 +39,11 @@ async def main():
         elif response['topic'] == '/contractMarket/tradeOrders':
             print(f'Trade Order:{response["data"]}')
             # Log trades to database
-            event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
-            event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
+            try:
+                event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
+                event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
+            except Exception as e:
+                pass
 
             # This didn't work until I added await in front of it. Data is in database but throws an exception
         else:
