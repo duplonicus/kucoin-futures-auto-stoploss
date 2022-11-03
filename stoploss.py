@@ -284,10 +284,12 @@ def add_far_stop(pos: dict) -> None:
     side = 'buy' if direction == 'short' else 'sell'
     # Submit the stoploss order
     oId = f'{pos["symbol"]}far'
-    print(f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
+    msg = f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}'
+    print(msg)
     # 'size' and 'lever' can be 0 because 'stop' has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     time.sleep(.34) # Rate limit
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='MP', price=0, lever=0, size=pos["currentQty"])
+    disco_log('Stoploss', msg)
 
 def check_trailing_stop(pos: dict):
     """ Make sure the trailing stop is correct, if not, cancel and resubmit. """
@@ -303,7 +305,7 @@ def check_trailing_stop(pos: dict):
             if float(item['stopPrice']) > trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
                 td_client.cancel_order(orderId=item['id'])
                 time.sleep(.1) # Rate limit
-                add_trailing_stop(pos)
+                add_trailing_stop('Stoploss', pos)
 
 def get_trailing_stop_price(pos: dict) -> float:
     """ Returns a trailing stop price. """
@@ -354,7 +356,7 @@ def main():
 
             if not initialized:
                 init()
-                print(f'> [{datetime.now().strftime(strftime)}] Stops will begin trailing at break-even plus {start_trailing_pcnt_lead * 1e2}% with a leeway of {leeway_pcnt * 1e2}%')
+                print(f'> [{datetime.now().strftime(strftime)}] Stops will begin trailing at break-even plus {start_trailing_pcnt_lead * 1e2}% with a leeway of {leeway_pcnt * 1e2}% and increase every {trailing_bump_pcnt * 1e2}%')
                 balance = round(get_futures_balance(), 2)
                 print(f'> [{datetime.now().strftime(strftime)}] Account Balance: {balance} USDT -> {round(trade_pcnt * 1e2)}% of Account Balance: {round(balance * trade_pcnt, 2)} USDT')
 
