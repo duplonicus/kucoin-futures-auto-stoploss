@@ -78,7 +78,7 @@ strftime = '%A %Y-%m-%d, %H:%M:%S'
 def init() -> None:
     """ Get data from surrealDB and display script name. """
     global symbols_dict, initialized
-    pyfiglet.print_figlet("Kucoin Futures Position Manager", 'alphabet', 'GREEN')
+    pyfiglet.print_figlet("Kucoin Futures Position Manager", 'threepoint', 'GREEN')
     print("\033[91m{}\033[00m".format('By Duplonicus\n'))
     if database:
         print(f'> [{datetime.now().strftime(strftime)}] Connecting to SurrealDB...')
@@ -111,6 +111,8 @@ def disco_log(title: str, message: str) -> None:
 def get_futures_balance() -> float:
     """ Returns the amount of USDT in the futures account """
     overview = ud_client.get_account_overview('USDT')
+    if database:
+        event_loop.run_until_complete(create_all('account', overview))
     return overview['availableBalance']
 
 def get_positions() -> dict:
@@ -224,8 +226,8 @@ def round_to_tick_size(number: float | int, tick_size: float | int | str) -> flo
     tick_size = tick_size.rstrip("0") # Remove trailing 0s that appear from prior conversion
     num_decimals = len(tick_size.split('.')[1]) # Split the tick_size at the decimal, get the # of digits after
     tick_size = float(tick_size)
-    rounded = round(number, num_decimals)
     rounded = round(number / tick_size) * tick_size # To nearest = round(num / decimal) * decimal
+    rounded = round(number, num_decimals)
     return rounded
 
 def check_positions() -> None:
@@ -282,7 +284,7 @@ def add_far_stop(pos: dict) -> None:
     side = 'buy' if direction == 'short' else 'sell'
     # Submit the stoploss order
     oId = f'{pos["symbol"]}far'
-    print(f'> [{datetime.now().strftime(strftime)}] Submitting STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
+    print(f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}')
     # 'size' and 'lever' can be 0 because 'stop' has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     time.sleep(.34) # Rate limit
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='MP', price=0, lever=0, size=pos["currentQty"])
@@ -357,9 +359,9 @@ def main():
                 print(f'> [{datetime.now().strftime(strftime)}] Account Balance: {balance} USDT -> {round(trade_pcnt * 1e2)}% of Account Balance: {round(balance * trade_pcnt, 2)} USDT')
 
             get_positions()
-            time.sleep(.34)
+            time.sleep(.34) # Rate limit
             get_stops()
-            time.sleep(.1)
+            time.sleep(.1) # Rate limit
             get_symbol_list()
             get_stop_symbol_list()
 
@@ -382,7 +384,7 @@ def main():
             # Display active positions
             if positions:
                 # This has to be a one-liner so it can be overwritten properly with end='\r'
-                # TODO: [KFAS-17] Figure out a better way to print all the data to the console
+                # TODO: [KFAS-17] Figure out a better way to display all the data to the console
                 # This doesn't work when there are multiple positions
                 # The extra spaces are to make sure there is no remaining text after using end='\r'
                 if len(symbols) == 1:

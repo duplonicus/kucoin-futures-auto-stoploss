@@ -1,7 +1,6 @@
 __pycache__/
 examples.json
 secret.ini
-test.py
 .vscode/
 history.txt
 .pylintrc
@@ -16,9 +15,8 @@ samples/
 datas/
 kucoin-cli/
 kucoincli/
-test2.py
 stoploss_old.py
 indicators/
 session_total_test.py
-test3.py
 kucoin.sdb/
+tests/
