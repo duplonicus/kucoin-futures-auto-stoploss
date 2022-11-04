@@ -58,7 +58,7 @@ strategy = True
 if strategy:
     from strategy import *
 
-# Set to True to enable Discord logging, useful if trading on mobile
+# Set to True to enable Discord logging
 disco = True
 if disco:
     from disco import *
@@ -220,9 +220,8 @@ def round_to_tick_size(number: float | int, tick_size: float | int | str) -> flo
 def check_positions() -> None:
     """ Loop through positions and compare unrealised ROE to start_trailing_pcnt. """
     for pos in positions:
-        unrealised_roe_pcnt = pos['unrealisedRoePcnt']
         # If unrealised ROE is high enough to start trailing, add or check trailing stop
-        if unrealised_roe_pcnt > get_start_trailing_pcnt(pos):
+        if pos['unrealisedRoePcnt'] > get_start_trailing_pcnt(pos):
             if pos['symbol'] not in stop_symbols:
                 add_trailing_stop(pos)
                 continue
@@ -338,8 +337,8 @@ def print_positions() -> None:
     """ Prints position info to the console """
     pos_stats = f'> [{datetime.now().strftime(strftime)}] Active Positions: ' # At the start
     for i, pos in enumerate(positions):
-        pos_stats = pos_stats + f"{get_leverage(pos)}X {pos['symbol']} {get_direction(pos).upper()} {pos['currentQty']} @ {pos['markPrice']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
-        if len(symbols) > 1 and i < len(symbols)-1: # Between pos items
+        pos_stats = pos_stats + f"{get_leverage(pos)}X {pos['symbol']} {get_direction(pos).upper()} {pos['currentQty']} @ {pos['avgEntryPrice']} -> {pos['markPrice']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
+        if len(symbols) > 1 and i < len(symbols)-1: # Between items
             pos_stats = pos_stats + ' | '
     pos_stats = pos_stats + '                                      ' # At the end
     if len(symbols) > 3:

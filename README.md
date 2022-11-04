@@ -10,7 +10,7 @@ The main purpose of this script is to prevent liquidation events. When a positio
 
 The orders appear on the Stop Orders tab and the trader can still use the Stop/Take-Profit button on the Positions tab to set a closer stop or take profit. The trader can adjust the 'start_trailing_pcnt_lead', 'leeway_pcnt', and 'trailing_bump_pcnt' to suit their trading style. See examples in stoploss.py.
 
-Even if the stop is only a few ticks away from the liquidation price, provided that it gets hit, being stopped out is better than being liquidated because it preserves your maintenance margin. More info on this [here](https://medium.com/@Austerity_Sucks/why-you-should-never-use-your-liquidation-price-as-a-stop-loss-on-bitcoin-futures-30655f280ddd).
+Even if the stop is only a few ticks away from the liquidation price, provided that it gets triggered, being stopped out is better than being liquidated because it preserves your maintenance margin. More info on this [here](https://medium.com/@Austerity_Sucks/why-you-should-never-use-your-liquidation-price-as-a-stop-loss-on-bitcoin-futures-30655f280ddd).
 
 ## Installation
 
