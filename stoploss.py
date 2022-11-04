@@ -34,13 +34,13 @@ ticks_from_liq = 2
 
 # The get_start_trailing_pcnt() function returns the break even percent of the trade plus this percentage
 # .1 is 10%
-start_trailing_pcnt_lead = .08 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
+start_trailing_pcnt_lead = .09 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
 
 # The amount of leeway between the start_trailing_pcnt and the trailing stop
-leeway_pcnt = .05 # Example: start trailing at 13.2% unrealised ROE, trailing stop is placed at 7.2%
+leeway_pcnt = .08 # Example: start trailing at 13.2% unrealised ROE, trailing stop is placed at 7.2%
 
 # How much the unrealised ROE must increase to bump the stop
-trailing_bump_pcnt = .02
+trailing_bump_pcnt = .04
 
 # Trading fee based on VIP level
 fee = 0.08
@@ -61,9 +61,7 @@ if strategy:
 # Set to True to enable Discord logging, useful if trading on mobile
 disco = True
 if disco:
-    from discord_webhook import DiscordWebhook, DiscordEmbed
-    disco_url = config['discord']['webhook_url']
-    disco_hook = DiscordWebhook(url=disco_url)
+    from disco import *
 
 """ Variables """
 positions = {}
@@ -100,13 +98,6 @@ def init() -> None:
     else:
         initialized = True
         print("> Install SurrealDB!")
-
-def disco_log(title: str, message: str) -> None:
-    """ Log a message to Discord via webhook """
-    embed = DiscordEmbed(title=title, description=message, color='03b2f8')
-    disco_hook.add_embed(embed)
-    response = disco_hook.execute()
-    disco_hook.remove_embeds()
 
 def get_futures_balance() -> float:
     """ Returns the amount of USDT in the futures account """
@@ -214,7 +205,7 @@ def cancel_stops_without_pos() -> None:
     """ Cancels stops without a position. """
     for item in stops["items"]:
             if item["symbol"] not in symbols:
-                print(f'> [{datetime.now().strftime(strftime)}] No position for {item["symbol"]}! CANCELLING STOP orders...        ')
+                print(f'> [{datetime.now().strftime(strftime)}] No position for {item["symbol"]}! CANCELLING STOP orders...                                      ')
                 td_client.cancel_all_stop_order(item["symbol"])
 
 def round_to_tick_size(number: float | int, tick_size: float | int | str) -> float:
@@ -291,7 +282,8 @@ def add_far_stop(pos: dict) -> None:
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using type='limit', 'price' needs a value
-    time.sleep(.34) # Rate limit
+    time.sleep(.45) # Rate limit
+    print('stop price', stop_price) # Debug
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='MP', price=0, lever=0, size=pos["currentQty"])
     disco_log('Stoploss', msg)
 
@@ -338,13 +330,26 @@ def add_trailing_stop(pos: dict) -> None:
     trail_price = get_trailing_stop_price(pos)
     amount = pos['currentQty']
     oId = f'{pos["symbol"]}trail'
-    msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}'
+    msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}                        '
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
     disco_log('Trailing Stop', msg)
     time.sleep(.1) # Rate limit
+
+def print_positions() -> None:
+    """ Prints position info to the console """
+    pos_stats = f'> [{datetime.now().strftime(strftime)}] Active Positions: '
+    for i, pos in enumerate(positions):
+        pos_stats = pos_stats + f"{get_leverage(pos)}X {pos['symbol']} {get_direction(pos).upper()} {pos['currentQty']} @ {pos['markPrice']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
+        if len(symbols) > 1 and i < len(symbols)-1:
+            pos_stats = pos_stats + ' | '
+    pos_stats = pos_stats + '                                      '
+    if len(symbols) > 3:
+        print(symbols)
+        return
+    print(pos_stats, end='\r')
 
 # Debugging
 """ print(f"Positions: -------\\\n{get_positions()}")
@@ -360,7 +365,7 @@ def main():
 
             if not initialized:
                 init()
-                print(f'> [{datetime.now().strftime(strftime)}] Stops will begin trailing at break-even plus {start_trailing_pcnt_lead * 1e2}% with a leeway of {leeway_pcnt * 1e2}% and increase every {trailing_bump_pcnt * 1e2}%')
+                print(f'> [{datetime.now().strftime(strftime)}] Stops will begin trailing at break-even plus {start_trailing_pcnt_lead * 1e2}% with a leeway of {round(leeway_pcnt * 1e2, 2)}% and increase every {trailing_bump_pcnt * 1e2}%')
                 balance = round(get_futures_balance(), 2)
                 print(f'> [{datetime.now().strftime(strftime)}] Account Balance: {balance} USDT -> {round(trade_pcnt * 1e2)}% of Account Balance: {round(balance * trade_pcnt, 2)} USDT')
                 print('> [{}] Strategy is {}'.format(datetime.now().strftime(strftime), 'Enabled' if strategy else 'Disabeld'))
@@ -388,26 +393,14 @@ def main():
             if strategy and short:
                 sell()
 
+
             # Display active positions
             if positions:
                 # This has to be a one-liner so it can be overwritten properly with end='\r'
                 # TODO: [KFAS-17] Figure out a better way to display all the data to the console
                 # This doesn't work when there are multiple positions
                 # The extra spaces are to make sure there is no remaining text after using end='\r'
-                if len(symbols) == 1:
-                    print(f'> [{datetime.now().strftime(strftime)}] Active positions:',
-                        ''.join(str(get_leverage(pos)).upper() for pos in positions), 'X', ' '.join(str(pos['symbol']) for pos in positions),
-                        ''.join(str(get_direction(pos)).upper() for pos in positions), ' '.join(str(pos['markPrice']) for pos in positions), '$',
-                        ''.join(str(pos['currentQty']) for pos in positions), '@', ''.join(str(round(pos['unrealisedRoePcnt'] * 100, 2)) for pos in positions),
-                        '%                                              ', end='\r')
-                else:
-                    print(f'> [{datetime.now().strftime(strftime)}] Active positions: {symbols}', end='\r')
-
-                def print_positions():
-                    pos_stats = ''
-                    for pos in positions:
-                        pos_stats = pos_stats + f"Active positions: {get_leverage(pos).upper()}X {pos['symbol']} {get_direction(pos).upper()} {pos['markPrice']} {pos['currentQty']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
-                    return pos_stats
+                print_positions()
 
             time.sleep(sleep_time)
 
@@ -423,10 +416,10 @@ def main():
                 print('\n', quote, "Those sure were some trades! See you tomorrow...                            ")
             quit()
 
-        """ except Exception as e:
+        except Exception as e:
             print(e)
             time.sleep(sleep_time)
-            pass """
+            pass
 
 if __name__ == '__main__':
     main()
