@@ -29,15 +29,15 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 # Number of seconds between each loop
 sleep_time = 0
 
-# Number of ticks away from liquidation price for stoploss
+# Number of ticks away from liquidation price for initial stoploss
 ticks_from_liq = 2
 
-# The get_start_trailing_pcnt() function returns the break even percent of the trade plus this percentage
+# The get_start_trailing_pcnt() function returns the break-even percent of the trade plus this percentage
 # .1 is 10%
 start_trailing_pcnt_lead = .09 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
 
 # The amount of leeway between the start_trailing_pcnt and the trailing stop
-leeway_pcnt = .08 # Example: start trailing at 13.2% unrealised ROE, trailing stop is placed at 7.2%
+leeway_pcnt = .08 # Example: start trailing at 13.2% unrealised ROE, subtract 5%, trailing stop is placed at 7.2%
 
 # How much the unrealised ROE must increase to bump the stop
 trailing_bump_pcnt = .04
@@ -170,11 +170,6 @@ def get_leverage(pos: dict) -> int:
     leverage = round(pos['realLeverage'] * (1 + pos['unrealisedRoePcnt']))
     return leverage
 
-def get_unrealised_roe_pcnt(pos: dict) -> float:
-    """ Returns the unrealised ROE percent. """
-    unrealised_roe_pcnt = pos['unrealisedRoePcnt']
-    return unrealised_roe_pcnt
-
 def get_tick_size(pos: dict) -> str:
     """ Returns the tick size. """
     # Get and store symbol contract details
@@ -225,7 +220,7 @@ def round_to_tick_size(number: float | int, tick_size: float | int | str) -> flo
 def check_positions() -> None:
     """ Loop through positions and compare unrealised ROE to start_trailing_pcnt. """
     for pos in positions:
-        unrealised_roe_pcnt = get_unrealised_roe_pcnt(pos)
+        unrealised_roe_pcnt = pos['unrealisedRoePcnt']
         # If unrealised ROE is high enough to start trailing, add or check trailing stop
         if unrealised_roe_pcnt > get_start_trailing_pcnt(pos):
             if pos['symbol'] not in stop_symbols:
@@ -282,10 +277,10 @@ def add_far_stop(pos: dict) -> None:
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using type='limit', 'price' needs a value
-    time.sleep(.45) # Rate limit
-    print('stop price', stop_price) # Debug
+    time.sleep(.45) # Rate limit - shouldn't have to wait here? why is it triggering
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='MP', price=0, lever=0, size=pos["currentQty"])
-    disco_log('Stoploss', msg)
+    if disco:
+        disco_log('Stoploss', msg)
 
 def check_trailing_stop(pos: dict):
     """ Make sure the trailing stop is correct, if not, cancel and resubmit. """
@@ -335,17 +330,18 @@ def add_trailing_stop(pos: dict) -> None:
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
-    disco_log('Trailing Stop', msg)
     time.sleep(.1) # Rate limit
+    if disco:
+        disco_log('Trailing Stop', msg)
 
 def print_positions() -> None:
     """ Prints position info to the console """
-    pos_stats = f'> [{datetime.now().strftime(strftime)}] Active Positions: '
+    pos_stats = f'> [{datetime.now().strftime(strftime)}] Active Positions: ' # At the start
     for i, pos in enumerate(positions):
         pos_stats = pos_stats + f"{get_leverage(pos)}X {pos['symbol']} {get_direction(pos).upper()} {pos['currentQty']} @ {pos['markPrice']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
-        if len(symbols) > 1 and i < len(symbols)-1:
+        if len(symbols) > 1 and i < len(symbols)-1: # Between pos items
             pos_stats = pos_stats + ' | '
-    pos_stats = pos_stats + '                                      '
+    pos_stats = pos_stats + '                                      ' # At the end
     if len(symbols) > 3:
         print(symbols)
         return
@@ -371,7 +367,7 @@ def main():
                 print('> [{}] Strategy is {}'.format(datetime.now().strftime(strftime), 'Enabled' if strategy else 'Disabeld'))
 
             get_positions()
-            time.sleep(.34) # Rate limit
+            time.sleep(.4) # Rate limit
             get_stops()
             time.sleep(.1) # Rate limit
             get_symbol_list()
@@ -379,10 +375,10 @@ def main():
 
             if stops is not None:
                 cancel_stops_without_pos()
-                time.sleep(.34) # Rate limit
+                time.sleep(.4) # Rate limit
 
             if not positions:
-                print(f"> [{datetime.now().strftime(strftime)}] No active positions... Start a trade!                              ", end="\r")
+                print(f'> [{datetime.now().strftime(strftime)}] No active positions... Start a trade!                              ', end='\r')
                 time.sleep(sleep_time)
                 continue
 
@@ -392,7 +388,6 @@ def main():
                 buy()
             if strategy and short:
                 sell()
-
 
             # Display active positions
             if positions:
@@ -409,15 +404,15 @@ def main():
                 cancel_stops_without_pos()
             end_balance = get_futures_balance()
             session_pnl = round(end_balance - balance, 2)
-            quote = requests.get("https://zenquotes.io/api/random").json()[0]["q"]
+            quote = requests.get('https://zenquotes.io/api/random').json()[0]['q']
             if session_pnl >= 0:
-                print('\n', quote, "Nice trades! See you tomorrow...                                            ")
+                print('\n', quote, 'Nice trades! See you tomorrow...                                                        ')
             else:
-                print('\n', quote, "Those sure were some trades! See you tomorrow...                            ")
+                print('\n', quote, 'Those sure were some trades! See you tomorrow...                                        ')
             quit()
 
         except Exception as e:
-            print(e)
+            print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] ', e, '                                          ')
             time.sleep(sleep_time)
             pass
 
