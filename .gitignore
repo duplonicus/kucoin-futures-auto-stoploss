@@ -1,6 +1,7 @@
 __pycache__/
 .vscode/
 .pylintrc
+secret.ini
 backtrader/
 samples/
 datas/
@@ -11,5 +12,3 @@ kucoin.sdb/
 tests/
 notebooks/
 scrapers/
-secret.ini
-KuCoin_logo.png
