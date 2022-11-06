@@ -2,10 +2,11 @@
 Kucoin web socket for trade data
 """
 import asyncio
-from kucoin_futures.client import TradeData, WsToken, UserData, MarketData
+from kucoin_futures.client import WsToken
 from kucoin_futures.ws_client import KucoinFuturesWsClient
 from surreal_db import *
 import configparser
+from disco import *
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -15,6 +16,9 @@ config.read("secret.ini")
 api_key = config['api']['key']
 api_secret = config['api']['secret']
 api_passphrase = config['api']['passphrase']
+
+# Log closed positions to Discord
+disco = True
 
 # Clear session table
 event_loop.run_until_complete(delete_all('session'))
@@ -42,6 +46,13 @@ async def main():
             try:
                 event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
                 event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
+                # If positions closed...
+                if response['data']['remainSize'] == 0:
+                    # Log to Discord
+                    if disco:
+                        disco_log('Position Closed', f'{response["data"]["symbol"]} position closed')
+                    # Print to console
+                    print('Position Closed', f'{response["data"]["symbol"]} position closed')
             except Exception as e:
                 pass
 
