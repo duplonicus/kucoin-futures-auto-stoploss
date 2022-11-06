@@ -32,7 +32,7 @@ sleep_time = 0
 # Number of ticks away from liquidation price for initial stoploss
 ticks_from_liq = 2
 
-# The get_start_trailing_pcnt() function returns the break-even percent of the trade plus this percentage
+# The get_start_trailing_pcnt() function returns the break-even percent of the position plus this percentage
 # .1 is 10%
 start_trailing_pcnt_lead = .09 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
 
@@ -110,6 +110,7 @@ def get_positions() -> dict:
     """ Returns a dictionary of active futures positions. """
     global positions
     positions = td_client.get_all_position()
+    time.sleep(.5) # Rate limit 9/3s
     if positions != {'code': '200000', 'data': []}:
         return positions
     else:
@@ -120,6 +121,7 @@ def get_stops() -> dict:
     """ Returns a dictionary of active stop orders. """
     global stops
     stops = td_client.get_open_stop_order()
+    time.sleep(.12) # Rate limit 10/s
     if stops != {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}:
         return stops
     else:
@@ -189,12 +191,12 @@ def get_tick_size(pos: dict) -> str:
     return tick_size
 
 def get_start_trailing_pcnt(pos: dict) -> float:
-    """ Returns the break-even percent + leeway_pcnt """
+    """ Returns the break-even percent + start_trailing_pcnt_lead """
     leverage = get_leverage(pos)
     start_trailing_pcnt = (fee * leverage) * 2 # The percentage that the trade breaks even
     start_trailing_pcnt = start_trailing_pcnt * 1e-2 # Shift the decimal 2 places to the left
     start_trailing_pcnt = start_trailing_pcnt + start_trailing_pcnt_lead # Add some amount to it so that after subtracting
-    return round(start_trailing_pcnt, 4)                                           # the leeway_pcnt, the first trailing stop will be in profit
+    return round(start_trailing_pcnt, 4)                                 # the leeway_pcnt, the first trailing stop will be in profit
 
 def cancel_stops_without_pos() -> None:
     """ Cancels stops without a position. """
@@ -202,6 +204,7 @@ def cancel_stops_without_pos() -> None:
             if item["symbol"] not in symbols:
                 print(f'> [{datetime.now().strftime(strftime)}] No position for {item["symbol"]}! CANCELLING STOP orders...                                      ')
                 td_client.cancel_all_stop_order(item["symbol"])
+                time.sleep(.5) # Rate limit 9/3s
 
 def round_to_tick_size(number: float | int, tick_size: float | int | str) -> float:
     """ Returns the number rounded to the tick_size. """
@@ -245,23 +248,25 @@ def check_far_stop(pos: dict) -> None:
                 # If the liquidation price or amount of the stop is wrong, cancel and resubmit
                 if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
                     td_client.cancel_order(orderId=item['id'])
-                    time.sleep(.1) # Rate limit
+                    time.sleep(.12) # Rate limit 10/s
                     add_far_stop(pos)
+                    time.sleep(.12) # Rate limit 10/s
         elif direction == 'short' and item['symbol'] == pos['symbol']:
             if item['stop'] == 'up' and item['clientOid'] == f'{pos["symbol"]}far':
                 if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
                     td_client.cancel_order(orderId=item['id'])
-                    time.sleep(.1) # Rate limit
+                    time.sleep(.12) # Rate limit 10/s
                     add_far_stop(pos)
+                    time.sleep(.12) # Rate limit 10/s
 
 def get_far_stop_price(pos: dict) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
     direction = get_direction(pos)
     tick_size = float(get_tick_size(pos))
     if direction == "long":
-        return round_to_tick_size(pos['liquidationPrice'] + tick_size * ticks_from_liq, tick_size) # Add for long
+        return round_to_tick_size(pos['liquidationPrice'] + (tick_size * ticks_from_liq), tick_size) # Add for long
     elif direction == "short":
-        return round_to_tick_size(pos['liquidationPrice'] - tick_size * ticks_from_liq, tick_size) # Subtract for short
+        return round_to_tick_size(pos['liquidationPrice'] - (tick_size * ticks_from_liq), tick_size) # Subtract for short
 
 def add_far_stop(pos: dict) -> None:
     """ Adds a stop loss ticks_from_liq away from the liquidation price. """
@@ -276,8 +281,8 @@ def add_far_stop(pos: dict) -> None:
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using type='limit', 'price' needs a value
-    time.sleep(.45) # Rate limit - shouldn't have to wait here? why is it triggering
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='MP', price=0, lever=0, size=pos["currentQty"])
+    time.sleep(.11) # Rate limit 10/s
     if disco:
         disco_log('Stoploss', msg)
 
@@ -289,13 +294,15 @@ def check_trailing_stop(pos: dict):
         if direction == 'long' and item['symbol'] == pos['symbol'] and item['stop'] == 'down':
             if float(item['stopPrice']) < trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
                 td_client.cancel_order(orderId=item['id'])
-                time.sleep(.1) # Rate limit
+                time.sleep(.11) # Rate limit 10/s
                 add_trailing_stop(pos)
+                time.sleep(.11) # Rate limit 10/s
         elif direction == 'short' and item['symbol'] == pos['symbol'] and item['stop'] == 'up':
             if float(item['stopPrice']) > trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
                 td_client.cancel_order(orderId=item['id'])
-                time.sleep(.1) # Rate limit
+                time.sleep(.11) # Rate limit 10/s
                 add_trailing_stop(pos)
+                time.sleep(.11) # Rate limit 10/s
 
 def get_trailing_stop_price(pos: dict) -> float:
     """ Returns a trailing stop price. """
@@ -329,7 +336,7 @@ def add_trailing_stop(pos: dict) -> None:
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
-    time.sleep(.1) # Rate limit
+    time.sleep(.11) # Rate limit
     if disco:
         disco_log('Trailing Stop', msg)
 
@@ -338,11 +345,12 @@ def print_positions() -> None:
     pos_stats = f'> [{datetime.now().strftime(strftime)}] Active Positions: ' # At the start
     for i, pos in enumerate(positions):
         pos_stats = pos_stats + f"{get_leverage(pos)}X {pos['symbol']} {get_direction(pos).upper()} {pos['currentQty']} @ {pos['avgEntryPrice']} -> {pos['markPrice']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
-        if len(symbols) > 1 and i < len(symbols)-1: # Between items
+        if len(symbols) > 1 and i < len(symbols) - 1: # Between items
             pos_stats = pos_stats + ' | '
     pos_stats = pos_stats + '                                      ' # At the end
+    # Display the symbol list instead if 4 or more positions
     if len(symbols) > 3:
-        print(symbols)
+        print(f"> [{datetime.now().strftime(strftime)}] Active Positions: {symbols}                                                 ", end='\r' )
         return
     print(pos_stats, end='\r')
 
@@ -363,18 +371,15 @@ def main():
                 print(f'> [{datetime.now().strftime(strftime)}] Stops will begin trailing at break-even plus {start_trailing_pcnt_lead * 1e2}% with a leeway of {round(leeway_pcnt * 1e2, 2)}% and increase every {trailing_bump_pcnt * 1e2}%')
                 balance = round(get_futures_balance(), 2)
                 print(f'> [{datetime.now().strftime(strftime)}] Account Balance: {balance} USDT -> {round(trade_pcnt * 1e2)}% of Account Balance: {round(balance * trade_pcnt, 2)} USDT')
-                print('> [{}] Strategy is {}'.format(datetime.now().strftime(strftime), 'Enabled' if strategy else 'Disabeld'))
+                print(f'> [{datetime.now().strftime(strftime)}] Strategy is {"Enabled" if strategy else "Disabled"}')
 
             get_positions()
-            time.sleep(.4) # Rate limit
             get_stops()
-            time.sleep(.1) # Rate limit
             get_symbol_list()
             get_stop_symbol_list()
 
             if stops is not None:
                 cancel_stops_without_pos()
-                time.sleep(.4) # Rate limit
 
             if not positions:
                 print(f'> [{datetime.now().strftime(strftime)}] No active positions... Start a trade!                              ', end='\r')
@@ -390,10 +395,6 @@ def main():
 
             # Display active positions
             if positions:
-                # This has to be a one-liner so it can be overwritten properly with end='\r'
-                # TODO: [KFAS-17] Figure out a better way to display all the data to the console
-                # This doesn't work when there are multiple positions
-                # The extra spaces are to make sure there is no remaining text after using end='\r'
                 print_positions()
 
             time.sleep(sleep_time)
