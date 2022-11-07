@@ -47,12 +47,12 @@ async def main():
                 event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
                 event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
                 # If positions closed...
-                if response['data']['remainSize'] == 0:
+                if response['data']['remainSize'] == '0':
                     # Log to Discord
                     if disco:
-                        disco_log('Position Closed', f'{response["data"]["symbol"]} position closed')
+                        disco_log('Position Change', f'{response["data"]["symbol"]} Position Change')
                     # Print to console
-                    print('Position Closed', f'{response["data"]["symbol"]} position closed')
+                    print('Position Change', f'{response["data"]["symbol"]} Position Change')
             except Exception as e:
                 pass
 
