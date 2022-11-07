@@ -346,6 +346,21 @@ def add_trailing_stop(pos: dict) -> None:
     if disco:
         disco_log('Trailing Stop', msg)
 
+def get_order_book(pos: dict) -> dict:
+    """ Returns the order book for the position """
+    book = md_client.l2_part_order_book(symbol=pos['symbol'], depth=20)
+    return book
+
+def get_spread(pos: list) -> float | int:
+    """ Returns the spread for the order book """
+    book = get_order_book(pos)
+    tick_size = get_tick_size(pos)
+    ask = book['asks'][0][0]
+    bid = book['bids'][0][0]
+    spread = ask - bid
+    spread = round_to_tick_size(spread, tick_size)
+    return spread
+
 def print_positions() -> None:
     """ Prints position info to the console """
     pos_stats = f'> [{datetime.now().strftime(strftime)}] Active Positions: ' # At the start
