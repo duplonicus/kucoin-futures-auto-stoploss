@@ -26,11 +26,9 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 # TODO: [KFAS-1] Argument parser
 
 """ Options """
-# Number of seconds between each loop
-sleep_time = 0
 
 # Number of ticks away from liquidation price for initial stoploss
-ticks_from_liq = 2
+ticks_from_liq = 3
 
 # The get_start_trailing_pcnt() function returns the break-even percent of the position plus this percentage
 # .1 is 10%
@@ -42,11 +40,12 @@ leeway_pcnt = .08 # Example: start trailing at 13.2% unrealised ROE, subtract 5%
 # How much the unrealised ROE must increase to bump the stop
 trailing_bump_pcnt = .04
 
-# Trading fee based on VIP level
-fee = 0.08
-
 # The percentage of account balance normally used for trades, not used for any calculations
 trade_pcnt = 0.10
+
+# Trading fee based on VIP level
+# .08 is .08%
+fee = 0.08
 
 # Set to True after installing SurrealDB: https://surrealdb.com/
 database = True
@@ -63,44 +62,51 @@ disco = True
 if disco:
     from disco import *
 
-""" Variables """
-positions = {}
-stops = {}
-symbols_dict = {}
-symbols = []
-stop_symbols = []
-initialized = False
+# Datetime format
 strftime = '%A %Y-%m-%d, %H:%M:%S'
+
+""" Global Variables """
+positions = {}
+symbols = []
+stops = {}
+stop_symbols = []
+symbols_dict = {}
+initialized = False
+balance = None
 
 """ Functions """
 def init() -> None:
     """ Get data from surrealDB and display script name. """
-    global symbols_dict, initialized
+    global symbols_dict, initialized, balance
+    balance = round(get_futures_balance(), 2)
+    initialized = True
     pyfiglet.print_figlet("Kucoin Futures Position Manager", 'threepoint', 'GREEN')
-    print("\033[91m{}\033[00m".format('By Duplonicus\n'))
+    print(f"\033[91m{'By Duplonicus'}\033[00m\n")
+    trail_at_pcnt = round((start_trailing_pcnt_lead - leeway_pcnt) * 1e2, 2)
+    print(f'> [{datetime.now().strftime(strftime)}] Stops will be placed {ticks_from_liq} ticks away from the liquidation price')
+    print(f'> [{datetime.now().strftime(strftime)}] Stops begin trailing when unrealised ROE reaches break-even plus {start_trailing_pcnt_lead * 1e2}% and increase every {trailing_bump_pcnt * 1e2}%')
+    print(f'> [{datetime.now().strftime(strftime)}] With a leeway of {leeway_pcnt * 1e2}%, trailing stops are placed at break-even plus {trail_at_pcnt}%, {trail_at_pcnt + trailing_bump_pcnt * 1e2}%, ...')
+    print(f'> [{datetime.now().strftime(strftime)}] Available Balance: {balance} USDT -> {round(trade_pcnt * 1e2)}% of Available Balance: {round(balance * trade_pcnt, 2)} USDT')
+    print(f'> [{datetime.now().strftime(strftime)}] Strategy is {"Enabled" if strategy else "Disabled"}')
     if database:
-        print(f'> [{datetime.now().strftime(strftime)}] Connecting to SurrealDB...')
         try:
             table = event_loop.run_until_complete(select_all("symbol"))
+            print(f'> [{datetime.now().strftime(strftime)}] Connected to SurrealDB')
         except Exception as e:
-            initialized = True
-            print(e)
-            print("> Install SurrealDB!")
+            print(f'> [{datetime.now().strftime(strftime)}]', e)
+            print(f'> [{datetime.now().strftime(strftime)}] Install SurrealDB!')
             return
         if table == []:
-            initialized = True
             return
         else:
-            for count, dict in enumerate(table):
+            for i, dict in enumerate(table):
                 symbols_dict.update(dict)
-        initialized = True
         return
     else:
-        initialized = True
-        print("> Install SurrealDB!")
+        print(f'> [{datetime.now().strftime(strftime)}] Install SurrealDB!')
 
 def get_futures_balance() -> float:
-    """ Returns the amount of USDT in the futures account """
+    """ Returns the amount of USDT in the futures account. """
     overview = ud_client.get_account_overview('USDT')
     if database:
         event_loop.run_until_complete(create_all('account', overview))
@@ -110,7 +116,7 @@ def get_positions() -> dict:
     """ Returns a dictionary of active futures positions. """
     global positions
     positions = td_client.get_all_position()
-    time.sleep(.5) # Rate limit 9/3s
+    time.sleep(.51) # Rate limit 9/3s
     if positions != {'code': '200000', 'data': []}:
         return positions
     else:
@@ -188,12 +194,12 @@ def get_tick_size(pos: dict) -> str:
     elif initialized:
         symbol_data = symbols_dict[pos["symbol"]]
         tick_size = symbol_data["tickSize"]
-    return tick_size
+    return float(tick_size)
 
 def get_start_trailing_pcnt(pos: dict) -> float:
     """ Returns the break-even percent + start_trailing_pcnt_lead """
     leverage = get_leverage(pos)
-    start_trailing_pcnt = (fee * leverage) * 2 # The percentage that the trade breaks even
+    start_trailing_pcnt = (fee * leverage) * 2 # The unrealised ROE % that the trade breaks even
     start_trailing_pcnt = start_trailing_pcnt * 1e-2 # Shift the decimal 2 places to the left
     start_trailing_pcnt = start_trailing_pcnt + start_trailing_pcnt_lead # Add some amount to it so that after subtracting
     return round(start_trailing_pcnt, 4)                                 # the leeway_pcnt, the first trailing stop will be in profit
@@ -204,7 +210,7 @@ def cancel_stops_without_pos() -> None:
             if item["symbol"] not in symbols:
                 print(f'> [{datetime.now().strftime(strftime)}] No position for {item["symbol"]}! CANCELLING STOP orders...                                      ')
                 td_client.cancel_all_stop_order(item["symbol"])
-                time.sleep(.5) # Rate limit 9/3s
+                time.sleep(.51) # Rate limit 9/3s
 
 def round_to_tick_size(number: float | int, tick_size: float | int | str) -> float:
     """ Returns the number rounded to the tick_size. """
@@ -221,7 +227,7 @@ def round_to_tick_size(number: float | int, tick_size: float | int | str) -> flo
     return rounded
 
 def check_positions() -> None:
-    """ Loop through positions and compare unrealised ROE to start_trailing_pcnt. """
+    """ Loop through positions and compare unrealised ROE % to start_trailing_pcnt. """
     for pos in positions:
         # If unrealised ROE is high enough to start trailing, add or check trailing stop
         if pos['unrealisedRoePcnt'] > get_start_trailing_pcnt(pos):
@@ -235,7 +241,7 @@ def check_positions() -> None:
             if pos['symbol'] not in stop_symbols:
                 add_far_stop(pos)
                 continue
-            elif pos['symbol'] in stop_symbols: # Tring to figure out why this was called after a trailing stop triggered
+            elif pos['symbol'] in stop_symbols: # TODO: [KFAS-32] Tring to figure out why this was called after a trailing stop triggered
                 check_far_stop(pos)
 
 def check_far_stop(pos: dict) -> None:
@@ -262,7 +268,7 @@ def check_far_stop(pos: dict) -> None:
 def get_far_stop_price(pos: dict) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
     direction = get_direction(pos)
-    tick_size = float(get_tick_size(pos))
+    tick_size = get_tick_size(pos)
     if direction == "long":
         return round_to_tick_size(pos['liquidationPrice'] + (tick_size * ticks_from_liq), tick_size) # Add for long
     elif direction == "short":
@@ -310,7 +316,7 @@ def get_trailing_stop_price(pos: dict) -> float:
     tick_size = get_tick_size(pos)
     lever = get_leverage(pos)
     unrealisedRoePcnt = pos['unrealisedRoePcnt']
-    # Get remainder and subract it from the unrealised ROE
+    # Logic for when to bump the stop, get remainder and subract it from the unrealised ROE %
     remainder = np.remainder(unrealisedRoePcnt, trailing_bump_pcnt)
     unrealisedRoePcnt = unrealisedRoePcnt - remainder
     if direction == 'long':
@@ -326,12 +332,12 @@ def add_trailing_stop(pos: dict) -> None:
     """ Adds a trailing stop. """
     direction = get_direction(pos)
     stop = 'down' if direction == 'long' else 'up'
-    side = 'buy' if direction == 'short' else 'sell'
+    side = 'sell' if direction == 'long' else 'buy'
     leverage = get_leverage(pos)
     trail_price = get_trailing_stop_price(pos)
     amount = pos['currentQty']
     oId = f'{pos["symbol"]}trail'
-    msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price}                        '
+    msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price} {round(pos["unrealisedRoePcnt"] * 100, 2)}%                       '
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
@@ -362,16 +368,12 @@ print(f"Symbols: -------\\\n{get_symbol_list()}") """
 def main():
     """ Happy Trading! """
     while True:
-        # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin
+        # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin or Cloudflare
         # TODO: [KFAS-5] Figure out which requests are trigging the rate limit
         try:
 
             if not initialized:
                 init()
-                print(f'> [{datetime.now().strftime(strftime)}] Stops will begin trailing at break-even plus {start_trailing_pcnt_lead * 1e2}% with a leeway of {round(leeway_pcnt * 1e2, 2)}% and increase every {trailing_bump_pcnt * 1e2}%')
-                balance = round(get_futures_balance(), 2)
-                print(f'> [{datetime.now().strftime(strftime)}] Account Balance: {balance} USDT -> {round(trade_pcnt * 1e2)}% of Account Balance: {round(balance * trade_pcnt, 2)} USDT')
-                print(f'> [{datetime.now().strftime(strftime)}] Strategy is {"Enabled" if strategy else "Disabled"}')
 
             get_positions()
             get_stops()
@@ -383,7 +385,6 @@ def main():
 
             if not positions:
                 print(f'> [{datetime.now().strftime(strftime)}] No active positions... Start a trade!                              ', end='\r')
-                time.sleep(sleep_time)
                 continue
 
             check_positions()
@@ -393,11 +394,8 @@ def main():
             if strategy and short:
                 sell()
 
-            # Display active positions
             if positions:
                 print_positions()
-
-            time.sleep(sleep_time)
 
         except KeyboardInterrupt:
             if stops is not None:
@@ -412,8 +410,7 @@ def main():
             quit()
 
         except Exception as e:
-            print(f'> [{datetime.now().strftime("%A %Y-%m-%d, %H:%M:%S")}] ', e, '                                          ')
-            time.sleep(sleep_time)
+            print(f'> [{datetime.now().strftime(strftime)}] ', e, '                                          ')
             pass
 
 if __name__ == '__main__':
