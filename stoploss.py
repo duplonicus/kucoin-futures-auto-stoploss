@@ -8,6 +8,7 @@ import configparser
 import requests
 import pyfiglet
 import numpy as np
+from urllib.error import HTTPError
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -30,6 +31,10 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 # Number of ticks away from liquidation price for initial stoploss
 ticks_from_liq = 3
 
+# Volitility protection: mulitply the ticks_from_liq by the spread
+# Experimental: I don't think this is a good method... needs an average over a period of time
+vol_prot = False
+
 # The get_start_trailing_pcnt() function returns the break-even percent of the position plus this percentage
 # .1 is 10%
 start_trailing_pcnt_lead = .09 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
@@ -46,6 +51,9 @@ trade_pcnt = 0.10
 # Trading fee based on VIP level
 # .08 is .08%
 fee = 0.08
+
+# Close limit orders when stop starts trailing
+close_limit_on_trailing = True
 
 # Set to True after installing SurrealDB: https://surrealdb.com/
 database = True
@@ -269,10 +277,15 @@ def get_far_stop_price(pos: dict) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
     direction = get_direction(pos)
     tick_size = get_tick_size(pos)
+    # Testing vol_prot
+    spread = get_spread(pos) if vol_prot else 1
+    print(f'> [{datetime.now().strftime(strftime)}] Spread for {pos["symbol"]} is {spread}') if spread > 1 else None
     if direction == "long":
-        return round_to_tick_size(pos['liquidationPrice'] + (tick_size * ticks_from_liq), tick_size) # Add for long
+        far_stop_price = round_to_tick_size(pos['liquidationPrice'] + (tick_size * (ticks_from_liq * spread)), tick_size) # Add for long
+        return far_stop_price
     elif direction == "short":
-        return round_to_tick_size(pos['liquidationPrice'] - (tick_size * ticks_from_liq), tick_size) # Subtract for short
+        far_stop_price = round_to_tick_size(pos['liquidationPrice'] - (tick_size * (ticks_from_liq * spread)), tick_size) # Subract for short
+        return far_stop_price
 
 def add_far_stop(pos: dict) -> None:
     """ Adds a stop loss ticks_from_liq away from the liquidation price. """
@@ -283,7 +296,7 @@ def add_far_stop(pos: dict) -> None:
     side = 'buy' if direction == 'short' else 'sell'
     # Submit the stoploss order
     oId = f'{pos["symbol"]}far'
-    msg = f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {stop_price}'
+    msg = f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage}X {direction} position: {pos["currentQty"]} contracts @ {stop_price}'
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using type='limit', 'price' needs a value
@@ -337,7 +350,7 @@ def add_trailing_stop(pos: dict) -> None:
     trail_price = get_trailing_stop_price(pos)
     amount = pos['currentQty']
     oId = f'{pos["symbol"]}trail'
-    msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage} X {direction} position: {pos["currentQty"]} contracts @ {trail_price} {round(pos["unrealisedRoePcnt"] * 100, 2)}%                       '
+    msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage}X {direction} position: {pos["currentQty"]} contracts @ {trail_price} {round(pos["unrealisedRoePcnt"] * 100, 2)}%                       '
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
@@ -349,17 +362,35 @@ def add_trailing_stop(pos: dict) -> None:
 def get_order_book(pos: dict) -> dict:
     """ Returns the order book for the position """
     book = md_client.l2_part_order_book(symbol=pos['symbol'], depth=20)
+    time.sleep(1.12) # Rate limit 30/3s
     return book
 
-def get_spread(pos: list) -> float | int:
-    """ Returns the spread for the order book """
+def get_spread(pos: dict) -> float | int:
+    """ Returns the spread for the position's order book """
     book = get_order_book(pos)
     tick_size = get_tick_size(pos)
     ask = book['asks'][0][0]
     bid = book['bids'][0][0]
     spread = ask - bid
-    spread = round_to_tick_size(spread, tick_size)
+    spread = round_to_tick_size(spread, tick_size) / tick_size # Number of ticks between ask and bid
     return spread
+
+def get_pcnt_to_liq(pos: dict) -> float:
+    """ Returns the distance to the liquidation price as a precentage """
+    liq_price = pos['liquidationPrice']
+    mark_price = pos['markPrice']
+    entry_price = pos['avgEntryPrice']
+    full = liq_price - entry_price
+    partial = liq_price - mark_price
+    ptl = (partial / full) # 0.5 is 50%
+    if ptl < 0:
+        ptl = ptl * -1
+    return ptl
+
+def close_open_orders(pos: dict) -> None:
+    print(f'> [{datetime.now().strftime(strftime)}] Canceling limit orders for {pos["symbol"]}')
+    td_client.cancel_all_limit_order(pos['symbol'])
+    time.sleep(.51)
 
 def print_positions() -> None:
     """ Prints position info to the console """
@@ -424,8 +455,13 @@ def main():
                 print('\n', quote, 'Those sure were some trades! See you tomorrow...                                        ')
             quit()
 
+        except HTTPError as e:
+            if e.code == 502:
+                print(f'> [{datetime.now().strftime(strftime)}] ', 'Cloudflare 502 Response', '                             ')
+                pass
+
         except Exception as e:
-            print(f'> [{datetime.now().strftime(strftime)}] ', e, '                                          ')
+            print(f'> [{datetime.now().strftime(strftime)}] ', e, '                                ')
             pass
 
 if __name__ == '__main__':
