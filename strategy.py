@@ -64,7 +64,7 @@ def check_long_condition() -> bool:
         if cross_up != new_cross_up and new_cross_up is True:
             cross_up = new_cross_up
             cross_down = False
-            print(f'> [{datetime.now().strftime(strftime)}] 50 EMA crossing 200 EMA UP for {symbol} on {timeframe} minute timeframe!!')
+            print(f'> [{datetime.now().strftime(strftime)}] 50 EMA crossing 200 EMA UP for {symbol} on {timeframe} minute timeframe!')
             # Add the event to the strategy table
             if database:
                 try:
@@ -96,7 +96,7 @@ def check_short_condition() -> bool:
         if cross_down != new_cross_down and new_cross_down is True:
             cross_down = new_cross_down
             cross_up = False
-            print(f'> [{datetime.now().strftime(strftime)}] 50 EMA crossing 200 EMA DOWN for {symbol} on {timeframe} minute timeframe!!')
+            print(f'> [{datetime.now().strftime(strftime)}] 50 EMA crossing 200 EMA DOWN for {symbol} on {timeframe} minute timeframe!')
             if database:
                 try:
                     event_loop.run_until_complete(create_all('strategy', {'name':'Golden Cross Down', 'symbol':symbol, 'time':datetime.now().strftime(strftime), 'timeframe':timeframe}))
