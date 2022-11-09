@@ -29,7 +29,7 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 """ Options """
 
 # Number of ticks away from liquidation price for initial stoploss
-ticks_from_liq = 3
+ticks_from_liq = 4
 
 # Volitility protection: mulitply the ticks_from_liq by the spread
 # Experimental: I don't think this is a good method... needs an average over a period of time
@@ -52,7 +52,7 @@ trade_pcnt = 0.10
 # .08 is .08%
 fee = 0.08
 
-# Close limit orders when stop starts trailing
+# Close limit orders when stoploss starts trailing
 close_limit_on_trailing = True
 
 # Set to True after installing SurrealDB: https://surrealdb.com/
@@ -61,7 +61,7 @@ if database:
     from surreal_db import *
 
 # Set to True after defining a strategy
-strategy = True
+strategy = False
 if strategy:
     from strategy import *
 
@@ -82,11 +82,16 @@ symbols_dict = {}
 initialized = False
 balance = None
 
+# Rate limit timings
+slow = 0.51 # 3/s
+medium = 0.12 # 10/s
+
 """ Functions """
 def init() -> None:
     """ Get data from surrealDB and display script name. """
     global symbols_dict, initialized, balance
     balance = round(get_futures_balance(), 2)
+    time.sleep(slow)
     initialized = True
     pyfiglet.print_figlet("Kucoin Futures Position Manager", 'threepoint', 'GREEN')
     print(f"\033[91m{'By Duplonicus'}\033[00m\n")
@@ -116,6 +121,7 @@ def init() -> None:
 def get_futures_balance() -> float:
     """ Returns the amount of USDT in the futures account. """
     overview = ud_client.get_account_overview('USDT')
+    time.sleep(slow)
     if database:
         event_loop.run_until_complete(create_all('account', overview))
     return overview['availableBalance']
@@ -124,7 +130,7 @@ def get_positions() -> dict:
     """ Returns a dictionary of active futures positions. """
     global positions
     positions = td_client.get_all_position()
-    time.sleep(.51) # Rate limit 9/3s
+    time.sleep(slow) # Rate limit 9/3s
     if positions != {'code': '200000', 'data': []}:
         return positions
     else:
@@ -135,7 +141,7 @@ def get_stops() -> dict:
     """ Returns a dictionary of active stop orders. """
     global stops
     stops = td_client.get_open_stop_order()
-    time.sleep(.12) # Rate limit 10/s
+    time.sleep(slow) # Rate limit 10/s
     if stops != {'currentPage': 1, 'pageSize': 50, 'totalNum': 0, 'totalPage': 0, 'items': []}:
         return stops
     else:
@@ -191,6 +197,7 @@ def get_tick_size(pos: dict) -> str:
     # Get and store symbol contract details
     if pos["symbol"] not in symbols_dict:
         symbol_data = md_client.get_contract_detail(pos["symbol"])
+        time.sleep(medium)
         tick_size = symbol_data['tickSize']
         symbols_dict[pos["symbol"]] = symbol_data
         if database:
@@ -216,9 +223,10 @@ def cancel_stops_without_pos() -> None:
     """ Cancels stops without a position. """
     for item in stops["items"]:
             if item["symbol"] not in symbols:
+                #time.sleep(slow)
                 print(f'> [{datetime.now().strftime(strftime)}] No position for {item["symbol"]}! CANCELLING STOP orders...                                      ')
                 td_client.cancel_all_stop_order(item["symbol"])
-                time.sleep(.51) # Rate limit 9/3s
+                time.sleep(slow) # Rate limit 9/3s
 
 def round_to_tick_size(number: float | int, tick_size: float | int | str) -> float:
     """ Returns the number rounded to the tick_size. """
@@ -230,8 +238,9 @@ def round_to_tick_size(number: float | int, tick_size: float | int | str) -> flo
     num_decimals = len(tick_size.split('.')[1]) # Split the tick_size at the decimal, get the # of digits after
     tick_size = float(tick_size)
     rounded = round(number, num_decimals)
-    rounded = round(number / tick_size) * tick_size # To nearest = round(num / decimal) * decimal
-    rounded = round(number, num_decimals)
+    rounded = round(rounded / tick_size) * tick_size # To nearest = round(num / decimal) * decimal
+    rounded = rounded
+    rounded = round(rounded, num_decimals)
     return rounded
 
 def check_positions() -> None:
@@ -244,6 +253,7 @@ def check_positions() -> None:
                 continue
             elif pos['symbol'] in stop_symbols:
                 check_trailing_stop(pos)
+                continue
         # If unrealised ROE isn't high enough to start trailing, add or check far stop
         else:
             if pos['symbol'] not in stop_symbols:
@@ -251,6 +261,7 @@ def check_positions() -> None:
                 continue
             elif pos['symbol'] in stop_symbols: # TODO: [KFAS-32] Tring to figure out why this was called after a trailing stop triggered
                 check_far_stop(pos)
+                continue
 
 def check_far_stop(pos: dict) -> None:
     """ Submits far stop order if not present. """
@@ -262,29 +273,29 @@ def check_far_stop(pos: dict) -> None:
                 # If the liquidation price or amount of the stop is wrong, cancel and resubmit
                 if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
                     td_client.cancel_order(orderId=item['id'])
-                    time.sleep(.12) # Rate limit 10/s
+                    time.sleep(slow) # Rate limit 10/s
                     add_far_stop(pos)
-                    time.sleep(.12) # Rate limit 10/s
+                    time.sleep(slow) # Rate limit 10/s
         elif direction == 'short' and item['symbol'] == pos['symbol']:
             if item['stop'] == 'up' and item['clientOid'] == f'{pos["symbol"]}far':
                 if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
                     td_client.cancel_order(orderId=item['id'])
-                    time.sleep(.12) # Rate limit 10/s
+                    time.sleep(slow) # Rate limit 10/s
                     add_far_stop(pos)
-                    time.sleep(.12) # Rate limit 10/s
+                    time.sleep(slow) # Rate limit 10/s
 
 def get_far_stop_price(pos: dict) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
     direction = get_direction(pos)
     tick_size = get_tick_size(pos)
     # Testing vol_prot
-    spread = get_spread(pos) if vol_prot else 1
-    print(f'> [{datetime.now().strftime(strftime)}] Spread for {pos["symbol"]} is {spread}') if spread > 1 else None
+    #spread = get_spread(pos) if vol_prot else 1
+    #print(f'> [{datetime.now().strftime(strftime)}] Spread for {pos["symbol"]} is {spread}') if spread > 1 else None
     if direction == "long":
-        far_stop_price = round_to_tick_size(pos['liquidationPrice'] + (tick_size * (ticks_from_liq * spread)), tick_size) # Add for long
+        far_stop_price = round_to_tick_size(pos['liquidationPrice'] + (tick_size * (ticks_from_liq)), tick_size) # Add for long
         return far_stop_price
     elif direction == "short":
-        far_stop_price = round_to_tick_size(pos['liquidationPrice'] - (tick_size * (ticks_from_liq * spread)), tick_size) # Subract for short
+        far_stop_price = round_to_tick_size(pos['liquidationPrice'] - (tick_size * (ticks_from_liq)), tick_size) # Subract for short
         return far_stop_price
 
 def add_far_stop(pos: dict) -> None:
@@ -300,8 +311,9 @@ def add_far_stop(pos: dict) -> None:
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using type='limit', 'price' needs a value
+    time.sleep(slow)
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='MP', price=0, lever=0, size=pos["currentQty"])
-    time.sleep(.11) # Rate limit 10/s
+    time.sleep(slow) # Rate limit 10/s
     if disco:
         disco_log('Stoploss', msg)
 
@@ -312,16 +324,18 @@ def check_trailing_stop(pos: dict):
     for item in stops['items']:
         if direction == 'long' and item['symbol'] == pos['symbol'] and item['stop'] == 'down':
             if float(item['stopPrice']) < trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
+                time.sleep(slow)
                 td_client.cancel_order(orderId=item['id'])
-                time.sleep(.11) # Rate limit 10/s
+                time.sleep(slow) # Rate limit 10/s
                 add_trailing_stop(pos)
-                time.sleep(.11) # Rate limit 10/s
+                time.sleep(slow) # Rate limit 10/s
         elif direction == 'short' and item['symbol'] == pos['symbol'] and item['stop'] == 'up':
             if float(item['stopPrice']) > trail_price and (item['clientOid'] == f'{pos["symbol"]}trail' or f'{pos["symbol"]}far'):
+                time.sleep(slow)
                 td_client.cancel_order(orderId=item['id'])
-                time.sleep(.11) # Rate limit 10/s
+                time.sleep(slow) # Rate limit 10/s
                 add_trailing_stop(pos)
-                time.sleep(.11) # Rate limit 10/s
+                time.sleep(slow) # Rate limit 10/s
 
 def get_trailing_stop_price(pos: dict) -> float:
     """ Returns a trailing stop price. """
@@ -333,12 +347,12 @@ def get_trailing_stop_price(pos: dict) -> float:
     remainder = np.remainder(unrealisedRoePcnt, trailing_bump_pcnt)
     unrealisedRoePcnt = unrealisedRoePcnt - remainder
     if direction == 'long':
-        price = pos['avgEntryPrice'] + (pos['avgEntryPrice'] * ((unrealisedRoePcnt - leeway_pcnt) / lever)) # Add for long
-        price = round_to_tick_size(price, tick_size)
+        #price = pos['avgEntryPrice'] + (pos['avgEntryPrice'] * ((unrealisedRoePcnt - leeway_pcnt) / lever)) # Add for long
+        price = round_to_tick_size(pos['avgEntryPrice'] + (pos['avgEntryPrice'] * ((unrealisedRoePcnt - leeway_pcnt) / lever)), tick_size)
         return price
     elif direction == 'short':
-        price = pos['avgEntryPrice'] - (pos['avgEntryPrice'] * ((unrealisedRoePcnt - leeway_pcnt) / lever)) # Subtract for short
-        price = round_to_tick_size(price, tick_size)
+        #price = pos['avgEntryPrice'] - (pos['avgEntryPrice'] * ((unrealisedRoePcnt - leeway_pcnt) / lever)) # Subtract for short
+        price = round_to_tick_size(pos['avgEntryPrice'] - (pos['avgEntryPrice'] * ((unrealisedRoePcnt - leeway_pcnt) / lever)), tick_size)
         return price
 
 def add_trailing_stop(pos: dict) -> None:
@@ -355,14 +369,14 @@ def add_trailing_stop(pos: dict) -> None:
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
-    time.sleep(.11) # Rate limit
+    time.sleep(slow) # Rate limit
     if disco:
         disco_log('Trailing Stop', msg)
 
 def get_order_book(pos: dict) -> dict:
     """ Returns the order book for the position """
     book = md_client.l2_part_order_book(symbol=pos['symbol'], depth=20)
-    time.sleep(1.12) # Rate limit 30/3s
+    time.sleep(medium) # Rate limit 30/3s
     return book
 
 def get_spread(pos: dict) -> float | int:
@@ -387,10 +401,16 @@ def get_pcnt_to_liq(pos: dict) -> float:
         ptl = ptl * -1
     return ptl
 
-def close_open_orders(pos: dict) -> None:
+def close_open_limit_orders(pos: dict) -> None:
+    """ Closes open limit orders for the position """
     print(f'> [{datetime.now().strftime(strftime)}] Canceling limit orders for {pos["symbol"]}')
     td_client.cancel_all_limit_order(pos['symbol'])
-    time.sleep(.51)
+    time.sleep(slow)
+
+def get_open_limit_orders(pos: dict) -> dict:
+    """ Returns open limit orders for the position """
+    td_client.get_order_list(symbol=pos['symbol'], type='limit', status='active')
+    time.sleep(slow)
 
 def print_positions() -> None:
     """ Prints position info to the console """
@@ -430,7 +450,7 @@ def main():
                 cancel_stops_without_pos()
 
             if not positions:
-                print(f'> [{datetime.now().strftime(strftime)}] No active positions... Start a trade!                              ', end='\r')
+                print(f'> [{datetime.now().strftime(strftime)}] No active positions... Start a trade!                                    ', end='\r')
                 continue
 
             check_positions()
@@ -457,11 +477,15 @@ def main():
 
         except HTTPError as e:
             if e.code == 502:
-                print(f'> [{datetime.now().strftime(strftime)}] ', 'Cloudflare 502 Response', '                             ')
-                pass
+                print(f'> [{datetime.now().strftime(strftime)}] ', 'Cloudflare 502 Response                                ')
+            time.sleep(slow)
+            pass
 
         except Exception as e:
+            if str(e)[:3] == ' 429':
+                print('test')
             print(f'> [{datetime.now().strftime(strftime)}] ', e, '                                ')
+            time.sleep(slow)
             pass
 
 if __name__ == '__main__':
