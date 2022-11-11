@@ -10,7 +10,7 @@ When a position exists or is entered, this script creates a stoploss order at th
 
 The orders appear on the Stop Orders tab and the trader can still use the Stop/Take-Profit button on the Positions tab to set a closer stop or take profit order. The trader can adjust the 'start_trailing_pcnt_lead', 'leeway_pcnt', and 'trailing_bump_pcnt' to suit their trading style. See examples in stoploss.py.
 
-Even if the stop is close to the liquidation price, provided that it gets triggered, being stopped out is prefferable to being liquidated because it preserves the maintenance margin. More info on this [here](https://medium.com/@Austerity_Sucks/why-you-should-never-use-your-liquidation-price-as-a-stop-loss-on-bitcoin-futures-30655f280ddd).
+Even if the stop is close to the liquidation price, provided that it gets triggered, being stopped out is preferable to being liquidated because it preserves the maintenance margin. More info on this [here](https://medium.com/@Austerity_Sucks/why-you-should-never-use-your-liquidation-price-as-a-stop-loss-on-bitcoin-futures-30655f280ddd).
 
 ## Installation
 
