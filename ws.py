@@ -21,7 +21,7 @@ api_passphrase = config['api']['passphrase']
 disco = True
 
 # Clear session table
-event_loop.run_until_complete(delete_all('session'))
+#event_loop.run_until_complete(delete_all('session'))
 
 async def main():
 
@@ -45,8 +45,10 @@ async def main():
             # Log trades to database
             try:
                 event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
-                event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
+                #event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
                 # If positions closed...
+                print(response['data']['remainSize'])
+                print(type(response['data']['remainSize']))
                 if response['data']['remainSize'] == '0':
                     # Log to Discord
                     if disco:
@@ -75,7 +77,7 @@ async def main():
         #print(r)
         pass
     while True:
-        await asyncio.sleep(60, loop=loop)
+        await asyncio.sleep(1.5, loop=loop)
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
