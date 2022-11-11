@@ -83,15 +83,14 @@ initialized = False
 balance = None
 
 # Rate limit timings
-slow = 0.51 # 3/s
-medium = 0.12 # 10/s
+slow = 0.55 # 3/s
+medium = 0.15 # 10/s
 
 """ Functions """
 def init() -> None:
     """ Get data from surrealDB and display script name. """
     global symbols_dict, initialized, balance
     balance = round(get_futures_balance(), 2)
-    time.sleep(slow)
     initialized = True
     pyfiglet.print_figlet("Kucoin Futures Position Manager", 'threepoint', 'GREEN')
     print(f"\033[91m{'By Duplonicus'}\033[00m\n")
@@ -121,7 +120,8 @@ def init() -> None:
 def get_futures_balance() -> float:
     """ Returns the amount of USDT in the futures account. """
     overview = ud_client.get_account_overview('USDT')
-    time.sleep(slow)
+    overview.update({'ts':datetime.now().strftime(strftime)})
+    time.sleep(medium)
     if database:
         event_loop.run_until_complete(create_all('account', overview))
     return overview['availableBalance']
@@ -272,17 +272,19 @@ def check_far_stop(pos: dict) -> None:
             if item['stop'] == 'down' and item['clientOid'] == f'{pos["symbol"]}far':
                 # If the liquidation price or amount of the stop is wrong, cancel and resubmit
                 if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
-                    td_client.cancel_order(orderId=item['id'])
-                    time.sleep(slow) # Rate limit 10/s
-                    add_far_stop(pos)
-                    time.sleep(slow) # Rate limit 10/s
+                    if stop_price > float(item['stopPrice']):
+                        td_client.cancel_order(orderId=item['id'])
+                        time.sleep(slow) # Rate limit 10/s
+                        add_far_stop(pos)
+                        time.sleep(slow) # Rate limit 10/s
         elif direction == 'short' and item['symbol'] == pos['symbol']:
             if item['stop'] == 'up' and item['clientOid'] == f'{pos["symbol"]}far':
                 if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
-                    td_client.cancel_order(orderId=item['id'])
-                    time.sleep(slow) # Rate limit 10/s
-                    add_far_stop(pos)
-                    time.sleep(slow) # Rate limit 10/s
+                    if stop_price > float(item['stopPrice']):
+                        td_client.cancel_order(orderId=item['id'])
+                        time.sleep(slow) # Rate limit 10/s
+                        add_far_stop(pos)
+                        time.sleep(slow) # Rate limit 10/s
 
 def get_far_stop_price(pos: dict) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
@@ -368,6 +370,7 @@ def add_trailing_stop(pos: dict) -> None:
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
+    time.sleep(slow) # Rate limit
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
     time.sleep(slow) # Rate limit
     if disco:
@@ -419,7 +422,7 @@ def print_positions() -> None:
         pos_stats = pos_stats + f"{get_leverage(pos)}X {pos['symbol']} {get_direction(pos).upper()} {pos['currentQty']} @ {pos['avgEntryPrice']} -> {pos['markPrice']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
         if len(symbols) > 1 and i < len(symbols) - 1: # Between items
             pos_stats = pos_stats + ' | '
-    pos_stats = pos_stats + '                                      ' # At the end
+    pos_stats = pos_stats + '                                                             ' # At the end
     # Display the symbol list instead if 4 or more positions
     if len(symbols) > 3:
         print(f"> [{datetime.now().strftime(strftime)}] Active Positions: {symbols}                                                 ", end='\r' )
@@ -475,16 +478,26 @@ def main():
                 print('\n', quote, 'Those sure were some trades! See you tomorrow...                                        ')
             quit()
 
-        except HTTPError as e:
+        except HTTPError as e: # These aren't working for some reason
+            print('http error:', e, e.code)
             if e.code == 502:
-                print(f'> [{datetime.now().strftime(strftime)}] ', 'Cloudflare 502 Response                                ')
+                print(f'> [{datetime.now().strftime(strftime)}] ', 'Cloudflare 502 Response                                 ')
+            if e.code == 500:
+                print(f'> [{datetime.now().strftime(strftime)}] ', 'Server Error 500                                        ')
             time.sleep(slow)
             pass
 
         except Exception as e:
-            if str(e)[:3] == ' 429':
-                print('test')
-            print(f'> [{datetime.now().strftime(strftime)}] ', e, '                                ')
+            if str(e)[:3] == '429':
+                print(f'> [{datetime.now().strftime(strftime)}]', 'Kucoin 492: Too Many Requests                                            ')
+            elif str(e)[:3] == '409':
+                print(f'> [{datetime.now().strftime(strftime)}]', 'Cloudflare 409: DNS resolution error                                     ')
+            elif str(e)[:3] == '502':
+                print(f'> [{datetime.now().strftime(strftime)}]', 'Cloudflare 502 Response                                                  ')
+            elif str(e)[:3] == '500':
+                print(f'> [{datetime.now().strftime(strftime)}]', 'Server Error 500                                                         ')
+            else:
+                print(f'> [{datetime.now().strftime(strftime)}]', e, '                                           ')
             time.sleep(slow)
             pass
 
