@@ -12,3 +12,8 @@ kucoin.sdb/
 tests/
 notebooks/
 scrapers/
+pyine/
+Parla.py/
+parla/
+datapipe.py
+kucoin.db
