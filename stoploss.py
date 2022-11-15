@@ -32,18 +32,18 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 ticks_from_liq = 4
 
 # Volitility protection: mulitply the ticks_from_liq by the spread
-# Experimental: I don't think this is a good method... needs an average over a period of time
+# Experimental: I don't think this is a good method... needs an average. check the ta libraries for volitility indicators
 vol_prot = False
 
 # The get_start_trailing_pcnt() function returns the break-even percent of the position plus this percentage
 # .1 is 10%
-start_trailing_pcnt_lead = .09 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
+start_trailing_pcnt_lead = .10 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
 
 # The amount of leeway between the start_trailing_pcnt and the trailing stop
-leeway_pcnt = .08 # Example: start trailing at 13.2% unrealised ROE, subtract 5%, trailing stop is placed at 7.2%
+leeway_pcnt = .06 # Example: start trailing at 13.2% unrealised ROE, subtract 5%, trailing stop is placed at 7.2%
 
 # How much the unrealised ROE must increase to bump the stop
-trailing_bump_pcnt = .04
+trailing_bump_pcnt = .03
 
 # The percentage of account balance normally used for trades, not used for any calculations
 trade_pcnt = 0.10
@@ -66,7 +66,7 @@ if strategy:
     from strategy import *
 
 # Set to True to enable Discord logging
-disco = True
+disco = False
 if disco:
     from disco import *
 
@@ -97,7 +97,7 @@ def init() -> None:
     trail_at_pcnt = round((start_trailing_pcnt_lead - leeway_pcnt) * 1e2, 2)
     print(f'> [{datetime.now().strftime(strftime)}] Stops will be placed {ticks_from_liq} ticks away from the liquidation price')
     print(f'> [{datetime.now().strftime(strftime)}] Stops begin trailing when unrealised ROE reaches break-even plus {start_trailing_pcnt_lead * 1e2}% and increase every {trailing_bump_pcnt * 1e2}%')
-    print(f'> [{datetime.now().strftime(strftime)}] With a leeway of {leeway_pcnt * 1e2}%, trailing stops are placed at break-even plus {trail_at_pcnt}%, {trail_at_pcnt + trailing_bump_pcnt * 1e2}%, ...')
+    print(f'> [{datetime.now().strftime(strftime)}] With a leeway of {round(leeway_pcnt * 1e2, 2)}%, trailing stops are placed at break-even plus {trail_at_pcnt}%, {trail_at_pcnt + trailing_bump_pcnt * 1e2}%, ...')
     print(f'> [{datetime.now().strftime(strftime)}] Available Balance: {balance} USDT -> {round(trade_pcnt * 1e2)}% of Available Balance: {round(balance * trade_pcnt, 2)} USDT')
     print(f'> [{datetime.now().strftime(strftime)}] Strategy is {"Enabled" if strategy else "Disabled"}')
     if database:
@@ -211,6 +211,20 @@ def get_tick_size(pos: dict) -> str:
         tick_size = symbol_data["tickSize"]
     return float(tick_size)
 
+def round_to_tick_size(number: float | int, tick_size: float | int | str) -> float:
+    """ Returns the number rounded to the tick_size. """
+    if type(tick_size) == int:
+        tick_size = str(tick_size)
+    if type(tick_size) == float:
+        tick_size = format(tick_size, 'f') # Format as standard notation if scientific, this converts to string too
+    tick_size = tick_size.rstrip("0") # Remove trailing 0s that appear from prior conversion
+    num_decimals = len(tick_size.split('.')[1]) # Split the tick_size at the decimal, get the # of digits after
+    tick_size = float(tick_size)
+    rounded = round(number, num_decimals)
+    rounded = round(rounded / tick_size) * tick_size # To nearest = round(num / decimal) * decimal
+    rounded = round(rounded, num_decimals)
+    return rounded
+
 def get_start_trailing_pcnt(pos: dict) -> float:
     """ Returns the break-even percent + start_trailing_pcnt_lead """
     leverage = get_leverage(pos)
@@ -228,25 +242,10 @@ def cancel_stops_without_pos() -> None:
                 td_client.cancel_all_stop_order(item["symbol"])
                 time.sleep(slow) # Rate limit 9/3s
 
-def round_to_tick_size(number: float | int, tick_size: float | int | str) -> float:
-    """ Returns the number rounded to the tick_size. """
-    if type(tick_size) == int:
-        tick_size = str(tick_size)
-    if type(tick_size) == float:
-        tick_size = format(tick_size, 'f') # Format as standard notation if scientific, this converts to string too
-    tick_size = tick_size.rstrip("0") # Remove trailing 0s that appear from prior conversion
-    num_decimals = len(tick_size.split('.')[1]) # Split the tick_size at the decimal, get the # of digits after
-    tick_size = float(tick_size)
-    rounded = round(number, num_decimals)
-    rounded = round(rounded / tick_size) * tick_size # To nearest = round(num / decimal) * decimal
-    rounded = rounded
-    rounded = round(rounded, num_decimals)
-    return rounded
-
 def check_positions() -> None:
     """ Loop through positions and compare unrealised ROE % to start_trailing_pcnt. """
     for pos in positions:
-        # If unrealised ROE is high enough to start trailing, add or check trailing stop
+        # If unrealised ROE IS high enough to start trailing, add or check trailing stop
         if pos['unrealisedRoePcnt'] > get_start_trailing_pcnt(pos):
             if pos['symbol'] not in stop_symbols:
                 add_trailing_stop(pos)
@@ -254,7 +253,7 @@ def check_positions() -> None:
             elif pos['symbol'] in stop_symbols:
                 check_trailing_stop(pos)
                 continue
-        # If unrealised ROE isn't high enough to start trailing, add or check far stop
+        # If unrealised ROE IS NOT high enough to start trailing, add or check far stop
         else:
             if pos['symbol'] not in stop_symbols:
                 add_far_stop(pos)
@@ -393,7 +392,7 @@ def get_spread(pos: dict) -> float | int:
     return spread
 
 def get_pcnt_to_liq(pos: dict) -> float:
-    """ Returns the distance to the liquidation price as a precentage """
+    """ Returns the distance to the liquidation price as a precentage. """
     liq_price = pos['liquidationPrice']
     mark_price = pos['markPrice']
     entry_price = pos['avgEntryPrice']
@@ -422,9 +421,9 @@ def print_positions() -> None:
         pos_stats = pos_stats + f"{get_leverage(pos)}X {pos['symbol']} {get_direction(pos).upper()} {pos['currentQty']} @ {pos['avgEntryPrice']} -> {pos['markPrice']} {round(pos['unrealisedRoePcnt'] * 100, 2)}%"
         if len(symbols) > 1 and i < len(symbols) - 1: # Between items
             pos_stats = pos_stats + ' | '
-    pos_stats = pos_stats + '                                                             ' # At the end
-    # Display the symbol list instead if 4 or more positions
-    if len(symbols) > 3:
+    pos_stats = pos_stats + '                                             ' # At the end
+    # Display the symbol list instead if 3 or more positions to try to keep it to 1 line
+    if len(symbols) > 2:
         print(f"> [{datetime.now().strftime(strftime)}] Active Positions: {symbols}                                                 ", end='\r' )
         return
     print(pos_stats, end='\r')
@@ -435,7 +434,6 @@ print(f"Stops: -------\\\n{get_stops()}")
 print(f"Symbols: -------\\\n{get_symbol_list()}") """
 
 def main():
-    """ Happy Trading! """
     while True:
         # Try/Except to prevent script from stopping if 'Too Many Requests' or other exception returned from Kucoin or Cloudflare
         # TODO: [KFAS-5] Figure out which requests are trigging the rate limit
@@ -478,12 +476,8 @@ def main():
                 print('\n', quote, 'Those sure were some trades! See you tomorrow...                                        ')
             quit()
 
-        except HTTPError as e: # These aren't working for some reason
-            print('http error:', e, e.code)
-            if e.code == 502:
-                print(f'> [{datetime.now().strftime(strftime)}] ', 'Cloudflare 502 Response                                 ')
-            if e.code == 500:
-                print(f'> [{datetime.now().strftime(strftime)}] ', 'Server Error 500                                        ')
+        except requests.exceptions.ConnectionError as e:
+            print(f'> [{datetime.now().strftime(strftime)}]', 'No response!                                                 ')
             time.sleep(slow)
             pass
 
@@ -493,7 +487,7 @@ def main():
             elif str(e)[:3] == '409':
                 print(f'> [{datetime.now().strftime(strftime)}]', 'Cloudflare 409: DNS resolution error                                     ')
             elif str(e)[:3] == '502':
-                print(f'> [{datetime.now().strftime(strftime)}]', 'Cloudflare 502 Response                                                  ')
+                print(f'> [{datetime.now().strftime(strftime)}]', 'Cloudflare 502                                                           ')
             elif str(e)[:3] == '500':
                 print(f'> [{datetime.now().strftime(strftime)}]', 'Server Error 500                                                         ')
             else:
