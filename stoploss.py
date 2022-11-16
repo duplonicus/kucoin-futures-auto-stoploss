@@ -9,6 +9,7 @@ import requests
 import pyfiglet
 import numpy as np
 from urllib.error import HTTPError
+import pandas as pd
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -30,10 +31,13 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 
 # Number of ticks away from liquidation price for initial stoploss
 ticks_from_liq = 4
+# OR set use_pcnt to True to use 'percentage to liquidation price' instead
+use_pcnt = False
+pcnt_to_liq = 0.90
 
 # Volitility protection: mulitply the ticks_from_liq by the spread
 # Experimental: I don't think this is a good method... needs an average. check the ta libraries for volitility indicators
-vol_prot = False
+#vol_prot = False
 
 # The get_start_trailing_pcnt() function returns the break-even percent of the position plus this percentage
 # .1 is 10%
@@ -52,13 +56,13 @@ trade_pcnt = 0.10
 # .08 is .08%
 fee = 0.08
 
-# Close limit orders when stoploss starts trailing
-close_limit_on_trailing = True
-
 # Set to True after installing SurrealDB: https://surrealdb.com/
 database = True
 if database:
     from surreal_db import *
+    from sqlalchemy import create_engine, insert
+    db_uri = "sqlite:///kucoin.db"
+    engine = create_engine(db_uri)
 
 # Set to True after defining a strategy
 strategy = False
@@ -103,6 +107,7 @@ def init() -> None:
     if database:
         try:
             table = event_loop.run_until_complete(select_all("symbol"))
+            tbl = pd.read_sql_table('symbol', engine)
             print(f'> [{datetime.now().strftime(strftime)}] Connected to SurrealDB')
         except Exception as e:
             print(f'> [{datetime.now().strftime(strftime)}]', e)
@@ -124,6 +129,8 @@ def get_futures_balance() -> float:
     time.sleep(medium)
     if database:
         event_loop.run_until_complete(create_all('account', overview))
+        #stmt = insert('account').values(overview)
+        #engine.execute(stmt)
     return overview['availableBalance']
 
 def get_positions() -> dict:
@@ -271,7 +278,7 @@ def check_far_stop(pos: dict) -> None:
             if item['stop'] == 'down' and item['clientOid'] == f'{pos["symbol"]}far':
                 # If the liquidation price or amount of the stop is wrong, cancel and resubmit
                 if float(item['stopPrice']) != stop_price or pos['currentQty'] != item['size']:
-                    if stop_price > float(item['stopPrice']):
+                    if stop_price < float(item['stopPrice']):
                         td_client.cancel_order(orderId=item['id'])
                         time.sleep(slow) # Rate limit 10/s
                         add_far_stop(pos)
@@ -293,11 +300,16 @@ def get_far_stop_price(pos: dict) -> float:
     #spread = get_spread(pos) if vol_prot else 1
     #print(f'> [{datetime.now().strftime(strftime)}] Spread for {pos["symbol"]} is {spread}') if spread > 1 else None
     if direction == "long":
-        far_stop_price = round_to_tick_size(pos['liquidationPrice'] + (tick_size * (ticks_from_liq)), tick_size) # Add for long
-        return far_stop_price
+        if not use_pcnt:
+            far_stop_price = round_to_tick_size(pos['liquidationPrice'] + (tick_size * (ticks_from_liq)), tick_size) # Add for long
+            return far_stop_price
+        else:
+            far_stop_price = round_to_tick_size(pos['liquidationPrice'] + (tick_size * (ticks_from_liq)), tick_size) # Add for long
+            return far_stop_price
     elif direction == "short":
-        far_stop_price = round_to_tick_size(pos['liquidationPrice'] - (tick_size * (ticks_from_liq)), tick_size) # Subract for short
-        return far_stop_price
+        if not use_pcnt:
+            far_stop_price = round_to_tick_size(pos['liquidationPrice'] - (tick_size * (ticks_from_liq)), tick_size) # Subract for short
+            return far_stop_price
 
 def add_far_stop(pos: dict) -> None:
     """ Adds a stop loss ticks_from_liq away from the liquidation price. """
@@ -392,6 +404,7 @@ def get_spread(pos: dict) -> float | int:
     return spread
 
 def get_pcnt_to_liq(pos: dict) -> float:
+    #TODO: This is yet to be used by anything
     """ Returns the distance to the liquidation price as a precentage. """
     liq_price = pos['liquidationPrice']
     mark_price = pos['markPrice']
@@ -477,7 +490,7 @@ def main():
             quit()
 
         except requests.exceptions.ConnectionError as e:
-            print(f'> [{datetime.now().strftime(strftime)}]', 'No response!                                                 ')
+            print(f'> [{datetime.now().strftime(strftime)}]', 'No response!                                                                 ')
             time.sleep(slow)
             pass
 
