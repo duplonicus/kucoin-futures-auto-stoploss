@@ -189,6 +189,13 @@ def sell() -> None:
         #td_client.create_limit_order(side='sell', symbol='', type='', price='', lever='', size='')
         return
 
+def check_strat() -> None:
+    """ Calls buy() and sell(). """
+    if strategy and long:
+        buy()
+    if strategy and short:
+        sell()
+
 def get_direction(pos: dict) -> str:
     """ Returns 'long' or 'short'. """
     direction = 'long' if pos['currentQty'] > 0 else 'short'
@@ -465,14 +472,11 @@ def main():
 
             if not positions:
                 print(f'> [{datetime.now().strftime(strftime)}] No active positions... Start a trade!                                    ', end='\r')
+                check_strat()
                 continue
 
             check_positions()
-
-            if strategy and long:
-                buy()
-            if strategy and short:
-                sell()
+            check_strat()
 
             if positions:
                 print_positions()
