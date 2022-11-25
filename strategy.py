@@ -51,6 +51,7 @@ def check_long_condition() -> bool:
         # Rename columns
         df.columns = K_LINE_COLUMNS
         # Set the index for pandas_ta functionality. Not sure what requires this, just keep it
+        df = df.sort_values('datetime')
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         # Get EMAs with pandas_ta
         df['Golden Cross Up'] = df.ta.ema(50, append=True) > df.ta.ema(200, append=True)
@@ -86,6 +87,7 @@ def check_short_condition() -> bool:
         k_lines = md_client.get_kline_data(symbol, timeframe)
         df = pd.DataFrame(k_lines)
         df.columns = K_LINE_COLUMNS
+        df = df.sort_values('datetime')
         df.set_index(pd.DatetimeIndex(df["datetime"]), inplace=True)
         df['Golden Cross Down'] = df.ta.ema(50, append=True) < df.ta.ema(200, append=True)
         if first_check_short is True:
