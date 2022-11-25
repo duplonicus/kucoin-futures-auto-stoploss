@@ -4,9 +4,10 @@ Kucoin web socket for trade data
 import asyncio
 from kucoin_futures.client import WsToken
 from kucoin_futures.ws_client import KucoinFuturesWsClient
-from surreal_db import *
+#from surreal_db import *
 import configparser
 from disco import *
+from sqlalchemy import create_engine, insert
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -17,8 +18,12 @@ api_key = config['api']['key']
 api_secret = config['api']['secret']
 api_passphrase = config['api']['passphrase']
 
+# DB Engine
+db_uri = "sqlite:///kucoin.db"
+engine = create_engine(db_uri)
+
 # Log closed positions to Discord
-disco = True
+disco = False
 
 # Clear session table
 #event_loop.run_until_complete(delete_all('session'))
@@ -44,17 +49,19 @@ async def main():
             print(f'Trade Order:{response["data"]}')
             # Log trades to database
             try:
-                event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
+                #event_loop.run_until_complete(await create_with_id("trade", response["data"]["tradeId"], response["data"]))
                 #event_loop.run_until_complete(await create_with_id("session", response["data"]["tradeId"], response["data"]))
+                stmt = insert('trade').values(response["data"])
+                engine.execute(stmt)
                 # If positions closed...
-                print(response['data']['remainSize'])
-                print(type(response['data']['remainSize']))
+                print('\n', response['data']['remainSize'])
+                print('\n', type(response['data']['remainSize']))
                 if response['data']['remainSize'] == '0':
                     # Log to Discord
                     if disco:
                         disco_log('Position Change', f'{response["data"]["symbol"]} Position Change')
                     # Print to console
-                    print('Position Change', f'{response["data"]["symbol"]} Position Change')
+                    print('\n', 'Position Change', f'{response["data"]["symbol"]} Position Change')
             except Exception as e:
                 pass
 
@@ -77,7 +84,7 @@ async def main():
         #print(r)
         pass
     while True:
-        await asyncio.sleep(1.5, loop=loop)
+        await asyncio.sleep(60, loop=loop)
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
