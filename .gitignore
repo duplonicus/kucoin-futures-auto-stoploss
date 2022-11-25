@@ -18,3 +18,4 @@ parla/
 datapipe.py
 kucoin.db
 streamlit/
+streamlit.db
