@@ -8,8 +8,8 @@ import configparser
 import requests
 import pyfiglet
 import numpy as np
-from urllib.error import HTTPError
 import pandas as pd
+from win10toast import ToastNotifier as toast
 
 # Config parser for API connection info
 config = configparser.ConfigParser()
@@ -32,19 +32,15 @@ md_client = MarketData(key=api_key, secret=api_secret, passphrase=api_passphrase
 # Number of ticks away from liquidation price for initial stoploss
 ticks_from_liq = 4
 # OR set use_pcnt to True to use 'percentage to liquidation price' instead
-use_pcnt = False
+use_pcnt = False # TODO: Finish
 pcnt_to_liq = 0.90
-
-# Volitility protection: mulitply the ticks_from_liq by the spread
-# Experimental: I don't think this is a good method... needs an average. check the ta libraries for volitility indicators
-#vol_prot = False
 
 # The get_start_trailing_pcnt() function returns the break-even percent of the position plus this percentage
 # .1 is 10%
 start_trailing_pcnt_lead = .10 # Example: at 20X with 0.08% fees, break even is at 3.2% ROE, add 10%, start trailing at 13.2% ROE
 
 # The amount of leeway between the start_trailing_pcnt and the trailing stop
-leeway_pcnt = .06 # Example: start trailing at 13.2% unrealised ROE, subtract 5%, trailing stop is placed at 7.2%
+leeway_pcnt = .08 # Example: start trailing at 13.2% unrealised ROE, subtract 5%, trailing stop is placed at 7.2%
 
 # How much the unrealised ROE must increase to bump the stop
 trailing_bump_pcnt = .03
@@ -76,6 +72,9 @@ if disco:
 
 # Datetime format
 strftime = '%A %Y-%m-%d, %H:%M:%S'
+
+# Show Windows toast notifications
+toasty = True
 
 """ Global Variables """
 positions = {}
@@ -303,9 +302,6 @@ def get_far_stop_price(pos: dict) -> float:
     """ Returns a stop price (tick_size * ticks_from_liq) away from the liquidation price. """
     direction = get_direction(pos)
     tick_size = get_tick_size(pos)
-    # Testing vol_prot
-    #spread = get_spread(pos) if vol_prot else 1
-    #print(f'> [{datetime.now().strftime(strftime)}] Spread for {pos["symbol"]} is {spread}') if spread > 1 else None
     if direction == "long":
         if not use_pcnt:
             far_stop_price = round_to_tick_size(pos['liquidationPrice'] + (tick_size * (ticks_from_liq)), tick_size) # Add for long
@@ -328,6 +324,8 @@ def add_far_stop(pos: dict) -> None:
     # Submit the stoploss order
     oId = f'{pos["symbol"]}far'
     msg = f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage}X {direction} position: {pos["currentQty"]} contracts @ {stop_price}'
+    if toasty:
+        toast.show_toast(msg, duration = 5, icon_path ="https://duplonicus.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10551?size=xxlarge")
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using type='limit', 'price' needs a value
@@ -385,6 +383,8 @@ def add_trailing_stop(pos: dict) -> None:
     amount = pos['currentQty']
     oId = f'{pos["symbol"]}trail'
     msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage}X {direction} position: {pos["currentQty"]} contracts @ {trail_price} {round(pos["unrealisedRoePcnt"] * 100, 2)}%                       '
+    if toasty:
+        toast.show_toast(msg, duration = 5, icon_path ="https://duplonicus.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10551?size=xxlarge")
     print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
