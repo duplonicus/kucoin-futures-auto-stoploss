@@ -65,6 +65,10 @@ strategy = False
 if strategy:
     from strategy import *
 
+
+# Set to True to enable Windows toast notifications
+toasty = True
+
 # Set to True to enable Discord logging
 disco = False
 if disco:
@@ -73,10 +77,8 @@ if disco:
 # Datetime format
 strftime = '%A %Y-%m-%d, %H:%M:%S'
 
-# Show Windows toast notifications
-toasty = True
-
 """ Global Variables """
+# You can look but no touchy
 positions = {}
 symbols = []
 stops = {}
@@ -323,15 +325,15 @@ def add_far_stop(pos: dict) -> None:
     side = 'buy' if direction == 'short' else 'sell'
     # Submit the stoploss order
     oId = f'{pos["symbol"]}far'
-    msg = f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage}X {direction} position: {pos["currentQty"]} contracts @ {stop_price}'
-    if toasty:
-        toast.show_toast(msg, duration = 5, icon_path ="https://duplonicus.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10551?size=xxlarge")
-    print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using type='limit', 'price' needs a value
     time.sleep(slow)
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=stop_price, stopPriceType='MP', price=0, lever=0, size=pos["currentQty"])
     time.sleep(slow) # Rate limit 10/s
+    msg = f'> [{datetime.now().strftime(strftime)}] Submitting STOPLOSS order for {pos["symbol"]} {leverage}X {direction} position: {pos["currentQty"]} contracts @ {stop_price}'
+    if toasty:
+        toast.show_toast(msg, duration = 5, icon_path ="https://duplonicus.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10551?size=xxlarge")
+    print(msg)
     if disco:
         disco_log('Stoploss', msg)
 
@@ -382,15 +384,15 @@ def add_trailing_stop(pos: dict) -> None:
     trail_price = get_trailing_stop_price(pos)
     amount = pos['currentQty']
     oId = f'{pos["symbol"]}trail'
-    msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage}X {direction} position: {pos["currentQty"]} contracts @ {trail_price} {round(pos["unrealisedRoePcnt"] * 100, 2)}%                       '
-    if toasty:
-        toast.show_toast(msg, duration = 5, icon_path ="https://duplonicus.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10551?size=xxlarge")
-    print(msg)
     # Lever can be 0 because stop has a value. closeOrder=True ensures a position won't be entered or increase. 'MP' means mark price, 'TP' means last traded price, 'IP' means index price
     # If using a limit order, 'price' needs a value
     time.sleep(slow) # Rate limit
     td_client.create_limit_order(clientOid=oId, closeOrder=True, type='market', side=side, symbol=pos['symbol'], stop=stop, stopPrice=trail_price, stopPriceType='MP', price=trail_price, lever=0, size=amount)
     time.sleep(slow) # Rate limit
+    msg = f'> [{datetime.now().strftime(strftime)}] Submitting TRAILING STOP order for {pos["symbol"]} {leverage}X {direction} position: {pos["currentQty"]} contracts @ {trail_price} {round(pos["unrealisedRoePcnt"] * 100, 2)}%                       '
+    if toasty:
+        toast.show_toast(msg, duration = 5, icon_path ="https://duplonicus.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10551?size=xxlarge")
+    print(msg)
     if disco:
         disco_log('Trailing Stop', msg)
 
