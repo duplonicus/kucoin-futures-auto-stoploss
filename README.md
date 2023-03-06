@@ -11,3 +11,7 @@ Add your API connection info to secret.ini.
 key =  
 secret =  
 passphrase = 
+
+Note: 
+
+The dev branch includes trailing stop functionality. I haven't merged it because there is an issue where a stop order is placed and immediately cancelled when a stop is hit. Also, it's in the process of being switched from SurrealDB to SQL because it was slowing me down.
