@@ -1,0 +1,58 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"powershell.cwd": ".",
+		"task.allowAutomaticTasks": "on"
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "SurrealDB",
+				"type": "shell",
+				"command": "",
+				"windows": {
+					"command": "surreal.exe start --log debug --user root --pass root file:./kucoin.sdb"
+				},
+				"presentation": {
+					"group": "startup",
+					"reveal": "always",
+					"panel": "new"
+				},
+				"runOptions": { "runOn": "folderOpen" }
+			},
+			{
+				"label": "Surreal REPL",
+				"type": "shell",
+				"command": "",
+				"windows": {
+					"command": "surreal sql --conn http://localhost:8000 --db kucoin --ns kucoin --user root --pass root --pretty"
+				},
+				"presentation": {
+					"group": "startup",
+					"reveal": "always",
+					"panel": "new"
+				},
+				"runOptions": { "runOn": "folderOpen" }
+			},
+			{
+				"label": "Trade Logger",
+				"type": "shell",
+				"command": "",
+				"windows": {
+					"command": "python -m ws"
+				},
+				"presentation": {
+					"group": "startup",
+					"reveal": "always",
+					"panel": "new"
+				},
+				"runOptions": { "runOn": "folderOpen" }
+			}
+		]
+	}
+}

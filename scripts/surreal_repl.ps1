@@ -1,0 +1,1 @@
+surreal sql --conn http://localhost:8000 --db kucoin --ns kucoin --user root --pass root --pretty
