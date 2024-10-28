@@ -21,3 +21,4 @@ streamlit/
 streamlit.db
 backtest.db
 notebooks_public/account_balance.ipynb
+.venv/
